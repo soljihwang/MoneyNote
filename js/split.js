@@ -81,8 +81,8 @@ const SplitPage = (() => {
     });
 
     // 내 카드 / 남편 카드 분리
-    const myCards    = settings.cards.filter(c => !c.inactive && !c.name.includes('재욱'));
-    const spouseCards= settings.cards.filter(c => !c.inactive &&  c.name.includes('재욱'));
+    const myCards    = settings.cards.filter(c => !c.inactive && !String(c.name||'').includes('재욱'));
+    const spouseCards= settings.cards.filter(c => !c.inactive &&  String(c.name||'').includes('재욱'));
 
     function cardTableHtml(cards, label) {
       if (!cards.length) return '';
