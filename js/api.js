@@ -60,16 +60,32 @@ const API = (() => {
     return json.data;
   }
 
-  // 쓰기 요청도 GET으로 — body를 JSON 문자열로 파라미터에 담아서 전송
-  async function write(action, body = {}) {
-    const month = body.month || (APP_STATE && APP_STATE.currentMonth) || '';
-    const url = new URL(GAS_URL);
+  // 쓰기 요청 — rows가 많으면 청크로 나눠서 전송
+  async function write(action, body) {
+    body = body || {};
+    var month = body.month || (APP_STATE && APP_STATE.currentMonth) || '';
+    if (body.rows && JSON.stringify(body).length > 6000) {
+      var CHUNK = 15;
+      var rows = body.rows;
+      var last;
+      for (var i = 0; i < rows.length; i += CHUNK) {
+        var chunk = rows.slice(i, i + CHUNK);
+        var chunkAction = i === 0 ? action : 'appendTransactions';
+        var chunkBody = Object.assign({}, body, { rows: chunk });
+        last = await writeOnce(chunkAction, chunkBody, month);
+      }
+      return last;
+    }
+    return writeOnce(action, body, month);
+  }
+
+  async function writeOnce(action, body, month) {
+    var url = new URL(GAS_URL);
     url.searchParams.set('action', action);
     url.searchParams.set('payload', JSON.stringify(body));
-
-    const res = await fetch(url.toString());
+    var res = await fetch(url.toString());
     if (!res.ok) throw new Error('API 오류: ' + res.status);
-    const json = await res.json();
+    var json = await res.json();
     if (json.error) throw new Error(json.error);
     clearCacheForMonth(month);
     return json.data;
