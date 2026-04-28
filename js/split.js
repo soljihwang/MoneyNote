@@ -81,8 +81,9 @@ const SplitPage = (() => {
     });
 
     // 내 카드 / 남편 카드 분리
-    const myCards    = settings.cards.filter(c => !c.inactive && !String(c.name||'').includes('재욱'));
-    const spouseCards= settings.cards.filter(c => !c.inactive &&  String(c.name||'').includes('재욱'));
+    const validCards = settings.cards.filter(c => c && typeof c === 'object' && c.name);
+    const myCards    = validCards.filter(c => !c.inactive && !String(c.name).includes('재욱'));
+    const spouseCards= validCards.filter(c => !c.inactive &&  String(c.name).includes('재욱'));
 
     function cardTableHtml(cards, label) {
       if (!cards.length) return '';
@@ -132,8 +133,8 @@ const SplitPage = (() => {
   // ── 필터 ────────────────────────────────────────────────
   function renderFilter() {
     const settings = APP_STATE.settings || defaultSettings();
-    const cards = settings.cards.filter(c => !c.inactive).map(c => c.name);
-    const cats  = settings.categories.filter(c => !c.inactive).map(c => c.name);
+    const cards = settings.cards.filter(c => c && typeof c === 'object' && c.name && !c.inactive).map(c => c.name);
+    const cats  = settings.categories.filter(c => c && typeof c === 'object' && c.name && !c.inactive).map(c => c.name);
 
     Utils.el('sp-filter').innerHTML = `
       <span style="font-size:10px;color:var(--text2)">필터</span>
@@ -164,8 +165,8 @@ const SplitPage = (() => {
   // ── 테이블 ──────────────────────────────────────────────
   function renderTable() {
     const settings = APP_STATE.settings || defaultSettings();
-    const cards = settings.cards.filter(c => !c.inactive).map(c => c.name);
-    const cats  = settings.categories.filter(c => !c.inactive).map(c => c.name);
+    const cards = settings.cards.filter(c => c && typeof c === 'object' && c.name && !c.inactive).map(c => c.name);
+    const cats  = settings.categories.filter(c => c && typeof c === 'object' && c.name && !c.inactive).map(c => c.name);
 
     const filtered = _rows.map((r, i) => ({...r, _idx: i})).filter(r => {
       if (_filters.card     && r.card !== _filters.card) return false;
