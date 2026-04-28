@@ -17,13 +17,23 @@ function doGet(e) {
   var action = e.parameter.action;
   var result;
   try {
+    // payload 파라미터가 있으면 쓰기 액션
+    var payload = {};
+    if (e.parameter.payload) {
+      try { payload = JSON.parse(e.parameter.payload); } catch (pe) {}
+    }
+
     switch (action) {
-      case 'getMonths':       result = getMonths();                           break;
-      case 'getTransactions': result = getTransactions(e.parameter.month);    break;
-      case 'getMemo':         result = getMemo(e.parameter.month);             break;
-      case 'getSettings':     result = getSettings();                          break;
-      case 'getSummary':      result = getSummary(e.parameter.month);          break;
-      default:                result = { error: 'unknown action: ' + action }; break;
+      case 'getMonths':        result = getMonths();                                              break;
+      case 'getTransactions':  result = getTransactions(e.parameter.month);                       break;
+      case 'getMemo':          result = getMemo(e.parameter.month);                               break;
+      case 'getSettings':      result = getSettings();                                            break;
+      case 'getSummary':       result = getSummary(e.parameter.month);                            break;
+      case 'createMonth':      result = createMonth(payload.month);                               break;
+      case 'saveTransactions': result = saveTransactions(payload.month, payload.rows);            break;
+      case 'saveMemo':         result = saveMemo(payload.month, payload.memo);                    break;
+      case 'saveSettings':     result = saveSettings(payload.settings);                           break;
+      default:                 result = { error: 'unknown action: ' + action };                   break;
     }
   } catch (err) {
     result = { error: err.message };
