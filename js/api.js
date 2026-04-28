@@ -1,19 +1,18 @@
 /**
- * api.js — GAS 통신 레이어
- * 모든 데이터 요청은 이 파일을 통해 처리
- * GAS_URL 을 실제 배포 URL로 교체하면 바로 연동됨
+ * api.js — GAS 통신 레이어 (GET only — CORS 우회)
+ * GAS 웹앱은 POST preflight CORS를 지원하지 않으므로
+ * 모든 요청(읽기/쓰기)을 GET + URL 파라미터로 처리
  */
 
 const API = (() => {
   // ★ 배포 후 실제 GAS 웹앱 URL로 교체
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbzRyS2tuBtUaTbhtu3-VtYzQiXCL8LlPuzEW_QxvwavVC-njEKlaYNTRnSqm1h4nRO3/exec';
 
-  // 로컬 캐시 (localStorage)
   const CACHE_PREFIX = 'ledger_';
-  const CACHE_TTL = 5 * 60 * 1000; // 5분
+  const CACHE_TTL = 5 * 60 * 1000;
 
   function cacheKey(action, month) {
-    return CACHE_PREFIX + action + '_' + month;
+    return CACHE_PREFIX + action + '_' + (month || 'global');
   }
 
   function getCache(key) {
@@ -27,36 +26,29 @@ const API = (() => {
   }
 
   function setCache(key, data) {
-    try {
-      localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() }));
-    } catch {}
+    try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
   }
 
   function clearCacheForMonth(month) {
     Object.keys(localStorage)
-      .filter(k => k.startsWith(CACHE_PREFIX) && k.includes(month))
+      .filter(k => k.startsWith(CACHE_PREFIX) && (!month || k.includes(month)))
       .forEach(k => localStorage.removeItem(k));
   }
 
-  /**
-   * GAS 호출 공통 함수
-   * @param {string} action
-   * @param {object} params
-   * @param {boolean} useCache
-   */
+  // 모든 요청을 GET으로 — GAS doGet에서 action으로 분기
   async function call(action, params = {}, useCache = false) {
-    const month = params.month || APP_STATE.currentMonth;
+    const month = params.month || (APP_STATE && APP_STATE.currentMonth) || '';
     const ck = cacheKey(action, month);
 
     if (useCache) {
       const cached = getCache(ck);
-      if (cached) return cached;
+      if (cached !== null) return cached;
     }
 
     const url = new URL(GAS_URL);
     url.searchParams.set('action', action);
     Object.entries(params).forEach(([k, v]) => {
-      url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : v);
+      url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
     });
 
     const res = await fetch(url.toString());
@@ -68,47 +60,31 @@ const API = (() => {
     return json.data;
   }
 
-  async function post(action, body = {}) {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, ...body }),
-    });
+  // 쓰기 요청도 GET으로 — body를 JSON 문자열로 파라미터에 담아서 전송
+  async function write(action, body = {}) {
+    const month = body.month || (APP_STATE && APP_STATE.currentMonth) || '';
+    const url = new URL(GAS_URL);
+    url.searchParams.set('action', action);
+    url.searchParams.set('payload', JSON.stringify(body));
+
+    const res = await fetch(url.toString());
     if (!res.ok) throw new Error('API 오류: ' + res.status);
     const json = await res.json();
     if (json.error) throw new Error(json.error);
-    clearCacheForMonth(body.month || APP_STATE.currentMonth);
+    clearCacheForMonth(month);
     return json.data;
   }
 
   return {
-    // 월 목록 조회
-    getMonths: () => call('getMonths', {}, true),
-
-    // 새 월 생성 (전월 메모/설정 복사)
-    createMonth: (month) => post('createMonth', { month }),
-
-    // 거래 내역 조회
-    getTransactions: (month) => call('getTransactions', { month }, true),
-
-    // 거래 내역 저장 (월 전체 덮어쓰기)
-    saveTransactions: (month, rows) => post('saveTransactions', { month, rows }),
-
-    // 메모 조회
-    getMemo: (month) => call('getMemo', { month }, true),
-
-    // 메모 저장
-    saveMemo: (month, memo) => post('saveMemo', { month, memo }),
-
-    // 설정 조회 (카드, 구분, 토글)
-    getSettings: () => call('getSettings', {}, true),
-
-    // 설정 저장
-    saveSettings: (settings) => post('saveSettings', { settings }),
-
-    // 대시보드 집계 (GAS에서 계산)
-    getSummary: (month) => call('getSummary', { month }, true),
-
+    getMonths:        ()             => call('getMonths', {}, true),
+    createMonth:      (month)        => write('createMonth', { month }),
+    getTransactions:  (month)        => call('getTransactions', { month }, true),
+    saveTransactions: (month, rows)  => write('saveTransactions', { month, rows }),
+    getMemo:          (month)        => call('getMemo', { month }, true),
+    saveMemo:         (month, memo)  => write('saveMemo', { month, memo }),
+    getSettings:      ()             => call('getSettings', {}, true),
+    saveSettings:     (settings)     => write('saveSettings', { settings }),
+    getSummary:       (month)        => call('getSummary', { month }, true),
     clearCacheForMonth,
   };
 })();
