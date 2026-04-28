@@ -187,7 +187,7 @@ async function initApp() {
       APP_STATE.memo = null;
       closeModal();
       showToast(Utils.monthLabel(month) + ' 생성됨');
-      navigateTo('input');
+      navigateTo('split');
     } catch (e) {
       showToast('생성 실패: ' + e.message);
     } finally {
@@ -212,7 +212,9 @@ async function initApp() {
       API.getSettings(),
     ]);
     APP_STATE.months = months && months.length ? months : [currentYearMonth()];
-    APP_STATE.currentMonth = APP_STATE.months[0];
+    // 이번달이 목록에 있으면 기본값으로, 없으면 첫번째 월
+    const thisMonth = currentYearMonth();
+    APP_STATE.currentMonth = APP_STATE.months.includes(thisMonth) ? thisMonth : APP_STATE.months[0];
     APP_STATE.settings = settings || defaultSettings();
   } catch {
     // GAS 미연결 시 localStorage → 기본값 순으로 fallback
@@ -230,7 +232,7 @@ async function initApp() {
   populateMonthSel(APP_STATE.months, APP_STATE.currentMonth);
   Utils.el('tb-month').textContent = Utils.monthLabel(APP_STATE.currentMonth);
 
-  navigateTo('input');
+  navigateTo('split');
 }
 
 function currentYearMonth() {
@@ -241,7 +243,7 @@ function currentYearMonth() {
 function defaultSettings() {
   return {
     cards: [
-      { name: 'mg+s(나)',       perf: 600000, disc: 30000, perfDefault: true,  discDefault: false },
+      { name: 'mg+s(나)',       perf: 600000, disc: 30000, perfDefault: true,  discDefault: false, inactive: false },
       { name: 'mg+s(재욱)',     perf: 412800, disc: 30000, perfDefault: true,  discDefault: false },
       { name: 'mg+s(나)할인',  perf: 0,      disc: 30000, perfDefault: false, discDefault: true },
       { name: 'mg+s(재욱)할인',perf: 0,      disc: 30000, perfDefault: false, discDefault: true },
@@ -292,11 +294,12 @@ async function ensureMemo() {
 
 function defaultMemo() {
   return {
-    payments: [],     // [{label, value}]
-    checklist: [],    // [{text, done}]
-    benefits: [],     // [{label, value}]
+    payments: [],
+    checklist: [],
+    benefits: [],
     freeText: '',
-    images: [],       // [{ name, dataUrl }]
+    images: [],
+    cards: [],        // [{type, title, items/text/images}]
   };
 }
 

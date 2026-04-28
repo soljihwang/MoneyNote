@@ -1,5 +1,5 @@
 /**
- * settings.js — 설정 탭 (v2 — 카드 추가/삭제, localStorage fallback)
+ * settings.js v3 — 카드/항목 비활성, 불필요 토글 제거
  */
 
 const SettingsPage = (() => {
@@ -12,17 +12,18 @@ const SettingsPage = (() => {
 
   function render() {
     const s = _settings;
-    const content = Utils.el('content');
-    content.innerHTML = `
+    Utils.el('content').innerHTML = `
       <div class="page active" id="p-settings">
 
         <div class="settings-section">
           <div class="settings-section-title">카드별 실적 / 할인 설정</div>
+          <div style="font-size:9px;color:var(--text3);margin-bottom:5px">기본 실적: 카드 선택 시 실적 체크박스 기본값 / 기본 할인: 카드 선택 시 할인 체크박스 기본값 (mg+s 계열만 활성)</div>
           <table class="settings-table" id="card-settings-tbl">
             <thead><tr>
               <th style="width:110px">카드명</th>
               <th>실적 허들</th><th>할인 한도</th>
               <th>기본 실적</th><th>기본 할인</th>
+              <th style="width:40px;text-align:center">비활성</th>
               <th style="width:28px"></th>
             </tr></thead>
             <tbody id="card-tbody">
@@ -34,11 +35,11 @@ const SettingsPage = (() => {
 
         <div class="settings-section">
           <div class="settings-section-title">구분 / 월 목표금액</div>
-          <div style="display:grid;grid-template-columns:120px 1fr 24px;gap:6px;font-size:9px;color:var(--text3);margin-bottom:4px">
-            <span>구분명</span><span>월 목표금액</span><span></span>
+          <div style="display:grid;grid-template-columns:120px 1fr 50px 24px;gap:6px;font-size:9px;color:var(--text3);margin-bottom:4px">
+            <span>구분명</span><span>월 목표금액</span><span style="text-align:center">비활성</span><span></span>
           </div>
           <div id="cat-settings-rows">
-            ${s.categories.map((c, i) => catRowHtml(i, c.name, c.budget)).join('')}
+            ${s.categories.map((c, i) => catRowHtml(i, c.name, c.budget, c.inactive)).join('')}
           </div>
           <button class="btn btn-sm" style="margin-top:6px" onclick="SettingsPage.addCat()">+ 구분 추가</button>
         </div>
@@ -52,13 +53,6 @@ const SettingsPage = (() => {
           </div>
         </div>
 
-        <div class="settings-section">
-          <div class="settings-section-title">일반 설정</div>
-          ${toggleRowHtml('confirmSave', '저장 시 확인 팝업', '저장 전 확인 다이얼로그 표시', s.toggles.confirmSave)}
-          ${toggleRowHtml('autoNextRow', '입력 후 자동 다음 행 이동', 'Enter 시 다음 행으로 포커스', s.toggles.autoNextRow)}
-          ${toggleRowHtml('commaFormat', '금액 천단위 자동 콤마', '입력 중 실시간 포맷', s.toggles.commaFormat)}
-        </div>
-
         <div style="display:flex;justify-content:flex-end">
           <button class="btn btn-primary" onclick="SettingsPage.save()">설정 저장</button>
         </div>
@@ -68,34 +62,32 @@ const SettingsPage = (() => {
   }
 
   function cardRowHtml(i, c) {
-    return `<tr data-ci="${i}">
+    const inactive = c.inactive ? 'checked' : '';
+    return `<tr data-ci="${i}" style="${c.inactive?'opacity:.45':''}">
       <td><input data-ci="${i}" data-key="name" value="${esc(c.name)}" placeholder="카드명" /></td>
       <td><input type="number" data-ci="${i}" data-key="perf" value="${c.perf || 0}" /></td>
       <td><input type="number" data-ci="${i}" data-key="disc" value="${c.disc || 0}" placeholder="0" /></td>
       <td><select data-ci="${i}" data-key="perfDefault">
-        <option value="true"${c.perfDefault ? ' selected' : ''}>포함</option>
-        <option value="false"${!c.perfDefault ? ' selected' : ''}>미포함</option>
+        <option value="true"${c.perfDefault?' selected':''}>포함</option>
+        <option value="false"${!c.perfDefault?' selected':''}>미포함</option>
       </select></td>
       <td><select data-ci="${i}" data-key="discDefault">
-        <option value="true"${c.discDefault ? ' selected' : ''}>포함</option>
-        <option value="false"${!c.discDefault ? ' selected' : ''}>미포함</option>
+        <option value="true"${c.discDefault?' selected':''}>포함</option>
+        <option value="false"${!c.discDefault?' selected':''}>미포함</option>
       </select></td>
+      <td style="text-align:center"><input type="checkbox" data-ci="${i}" data-key="inactive" ${inactive} style="accent-color:var(--blue)" /></td>
       <td><button class="btn-icon" onclick="SettingsPage.removeCard(${i})">-</button></td>
     </tr>`;
   }
 
-  function catRowHtml(i, name, budget) {
-    return `<div class="cat-settings-row" data-cat-idx="${i}">
+  function catRowHtml(i, name, budget, inactive) {
+    return `<div class="cat-settings-row" data-cat-idx="${i}" style="grid-template-columns:120px 1fr 50px 24px;${inactive?'opacity:.45':''}">
       <input data-cat="${i}" data-key="name" value="${esc(name)}" placeholder="구분명" />
       <input type="number" data-cat="${i}" data-key="budget" value="${budget || 0}" />
+      <div style="display:flex;align-items:center;justify-content:center">
+        <input type="checkbox" data-cat="${i}" data-key="inactive" ${inactive?'checked':''} style="accent-color:var(--blue)" />
+      </div>
       <button class="btn-icon" onclick="SettingsPage.removeCat(${i})">-</button>
-    </div>`;
-  }
-
-  function toggleRowHtml(key, label, sub, on) {
-    return `<div class="toggle-row">
-      <div><div class="toggle-label">${label}</div><div class="toggle-sub">${sub}</div></div>
-      <button class="toggle-btn${on ? ' on' : ''}" data-toggle="${key}" onclick="this.classList.toggle('on')"></button>
     </div>`;
   }
 
@@ -104,18 +96,33 @@ const SettingsPage = (() => {
     cardTbl.addEventListener('input', e => {
       const { ci, key } = e.target.dataset;
       if (ci === undefined || !key || !_settings.cards[+ci]) return;
-      _settings.cards[+ci][key] = (key === 'perf' || key === 'disc') ? +e.target.value : e.target.value;
+      if (key === 'perf' || key === 'disc') _settings.cards[+ci][key] = +e.target.value;
+      else _settings.cards[+ci][key] = e.target.value;
     });
     cardTbl.addEventListener('change', e => {
       const { ci, key } = e.target.dataset;
       if (ci === undefined || !key || !_settings.cards[+ci]) return;
-      _settings.cards[+ci][key] = e.target.value === 'true';
+      if (e.target.type === 'checkbox') _settings.cards[+ci][key] = e.target.checked;
+      else _settings.cards[+ci][key] = e.target.value === 'true';
+      if (key === 'inactive') {
+        const tr = e.target.closest('tr');
+        if (tr) tr.style.opacity = e.target.checked ? '.45' : '';
+      }
     });
 
     Utils.el('cat-settings-rows').addEventListener('input', e => {
       const { cat: idx, key } = e.target.dataset;
       if (idx === undefined || !key) return;
       _settings.categories[+idx][key] = key === 'budget' ? +e.target.value : e.target.value;
+    });
+    Utils.el('cat-settings-rows').addEventListener('change', e => {
+      const { cat: idx, key } = e.target.dataset;
+      if (idx === undefined || !key) return;
+      if (e.target.type === 'checkbox') {
+        _settings.categories[+idx][key] = e.target.checked;
+        const row = e.target.closest('.cat-settings-row');
+        if (row) row.style.opacity = e.target.checked ? '.45' : '';
+      }
     });
 
     Utils.el('total-budget').addEventListener('input', e => {
@@ -124,7 +131,7 @@ const SettingsPage = (() => {
   }
 
   function addCard() {
-    const newCard = { name: '', perf: 0, disc: 0, perfDefault: true, discDefault: false };
+    const newCard = { name: '', perf: 0, disc: 0, perfDefault: true, discDefault: false, inactive: false };
     _settings.cards.push(newCard);
     const tbody = Utils.el('card-tbody');
     const i = _settings.cards.length - 1;
@@ -139,45 +146,36 @@ const SettingsPage = (() => {
   }
 
   function addCat() {
-    _settings.categories.push({ name: '', budget: 0 });
+    _settings.categories.push({ name: '', budget: 0, inactive: false });
     const rows = Utils.el('cat-settings-rows');
     const i = _settings.categories.length - 1;
-    rows.insertAdjacentHTML('beforeend', catRowHtml(i, '', 0));
+    rows.insertAdjacentHTML('beforeend', catRowHtml(i, '', 0, false));
     rows.lastElementChild.querySelector('input[data-key=name]').focus();
   }
 
   function removeCat(idx) {
     _settings.categories.splice(idx, 1);
-    Utils.el('cat-settings-rows').innerHTML = _settings.categories.map((c, i) => catRowHtml(i, c.name, c.budget)).join('');
+    Utils.el('cat-settings-rows').innerHTML = _settings.categories.map((c, i) => catRowHtml(i, c.name, c.budget, c.inactive)).join('');
   }
 
   async function save() {
-    Utils.qsa('.toggle-btn[data-toggle]').forEach(btn => {
-      _settings.toggles[btn.dataset.toggle] = btn.classList.contains('on');
-    });
-
     const btn = Utils.el('top-save-btn');
     if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
 
-    // GAS 시도, 실패 시 localStorage fallback
     let savedToGas = false;
     try {
       await API.saveSettings(_settings);
       savedToGas = true;
     } catch {}
 
-    try {
-      localStorage.setItem('ledger_settings', JSON.stringify(_settings));
-    } catch {}
-
+    try { localStorage.setItem('ledger_settings', JSON.stringify(_settings)); } catch {}
     APP_STATE.settings = JSON.parse(JSON.stringify(_settings));
     showToast(savedToGas ? '설정 저장됨' : '설정 저장됨 (로컬)');
-
     if (btn) { btn.disabled = false; btn.textContent = '설정 저장'; }
   }
 
   function esc(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   return { init, save, addCard, removeCard, addCat, removeCat };
