@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>가계부</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app" id="app">
+
+    <!-- 사이드바 -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-top">
+        <div class="logo">가계부</div>
+        <div class="month-row">
+          <select class="month-sel" id="month-sel"></select>
+          <button class="new-month-btn" id="btn-new-month">+ 월</button>
+        </div>
+      </div>
+
+      <nav class="nav-group">
+        <div class="nav-lbl">메뉴</div>
+        <div class="ni" data-page="dash">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1" y="1" width="4.5" height="4.5" rx=".8"/><rect x="7.5" y="1" width="4.5" height="4.5" rx=".8"/><rect x="1" y="7.5" width="4.5" height="4.5" rx=".8"/><rect x="7.5" y="7.5" width="4.5" height="4.5" rx=".8"/></svg>
+          대시보드
+        </div>
+        <div class="ni active" data-page="input">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="6.5" y1="2" x2="6.5" y2="11"/><line x1="2" y1="6.5" x2="11" y2="6.5"/></svg>
+          입력
+        </div>
+        <div class="ni" data-page="ledger">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="2" y1="4" x2="11" y2="4"/><line x1="2" y1="7" x2="11" y2="7"/><line x1="2" y1="10" x2="8" y2="10"/></svg>
+          내역
+        </div>
+        <div class="nav-divider"></div>
+        <div class="nav-lbl">기타</div>
+        <div class="ni" data-page="memo">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="1.5" width="9" height="10" rx="1"/><line x1="4" y1="5" x2="9" y2="5"/><line x1="4" y1="7.5" x2="7" y2="7.5"/></svg>
+          메모
+        </div>
+        <div class="ni" data-page="compare">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><polyline points="2,10 4.5,7 7.5,9 11,4"/><circle cx="11" cy="4" r="1.2" fill="currentColor" stroke="none"/></svg>
+          카드 대조
+        </div>
+        <div class="ni" data-page="settings">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6.5" cy="6.5" r="2"/><path d="M6.5 1v1.2M6.5 10.8V12M1 6.5h1.2M10.8 6.5H12M2.75 2.75l.85.85M9.4 9.4l.85.85M9.4 3.6l-.85.85M3.6 9.4l-.85.85"/></svg>
+          설정
+        </div>
+        <div class="nav-divider"></div>
+        <div class="nav-lbl">2차 예정</div>
+        <div class="ni disabled">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1" y="2" width="11" height="9" rx="1"/><line x1="1" y1="5" x2="12" y2="5"/></svg>
+          연간 결산
+        </div>
+        <div class="ni disabled">
+          <svg viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="6.5" cy="5" r="2"/><path d="M3 11c0-2 1.6-3.5 3.5-3.5S10 9 10 11"/></svg>
+          단가 추적
+        </div>
+      </nav>
+    </aside>
+
+    <!-- 모바일 햄버거 -->
+    <button class="hamburger" id="hamburger" aria-label="메뉴">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- 메인 -->
+    <div class="main">
+      <header class="topbar" id="topbar">
+        <div class="tb-left">
+          <div class="tb-title" id="page-title">입력</div>
+          <div class="tb-month" id="tb-month"></div>
+        </div>
+        <div class="tb-right" id="tb-right">
+          <div class="search-wrap">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5" cy="5" r="3.5"/><line x1="7.8" y1="7.8" x2="11" y2="11"/></svg>
+            <input type="text" id="search-input" placeholder="항목, 쇼핑몰 검색..." />
+          </div>
+          <button class="btn btn-primary" id="top-save-btn">저장</button>
+        </div>
+      </header>
+
+      <div class="content" id="content">
+        <!-- 페이지별 컨텐츠 동적 렌더링 -->
+        <div class="page-loading">
+          <div class="loading-spinner"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 월 생성 모달 -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" id="modal-new-month">
+      <div class="modal-title" id="modal-month-title">5월 시트 생성</div>
+      <p class="modal-desc">아래 항목을 전월에서 복사합니다. 해당 월에서만 독립적으로 편집됩니다.</p>
+      <div class="modal-rows">
+        <div class="modal-row"><div><div class="mrl">메모 전체</div><div class="mrs">결제정보, 체크리스트, 카드혜택, 자유메모, 이미지</div></div><span class="badge badge-green">복사</span></div>
+        <div class="modal-row"><div><div class="mrl">카드 설정</div><div class="mrs">허들금액, 할인한도</div></div><span class="badge badge-green">복사</span></div>
+        <div class="modal-row"><div><div class="mrl">목표금액</div><div class="mrs">구분별 예산</div></div><span class="badge badge-green">복사</span></div>
+        <div class="modal-row"><div><div class="mrl">입력 내역</div><div class="mrs">거래 데이터는 초기화</div></div><span class="badge badge-gray">초기화</span></div>
+      </div>
+      <div class="modal-btns">
+        <button class="btn" id="modal-cancel">취소</button>
+        <button class="btn btn-primary" id="modal-confirm">생성</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 항목별 메모 모달 -->
+  <div class="modal-overlay" id="item-memo-overlay">
+    <div class="modal modal-sm">
+      <div class="modal-title">항목 메모</div>
+      <textarea class="item-memo-ta" id="item-memo-ta" placeholder="이 항목에 대한 메모를 입력하세요..."></textarea>
+      <div class="modal-btns">
+        <button class="btn" id="item-memo-cancel">취소</button>
+        <button class="btn btn-primary" id="item-memo-save">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 토스트 알림 -->
+  <div class="toast" id="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/ledger.js"></script>
+  <script src="js/memo.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/compare.js"></script>
+</body>
+</html>
