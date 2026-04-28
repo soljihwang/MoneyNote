@@ -73,6 +73,7 @@ const PAGES = {
   dash:     { title: '대시보드', search: false, save: false, init: () => DashboardPage.init() },
   input:    { title: '입력',     search: true,  save: true,  init: () => InputPage.init() },
   ledger:   { title: '내역',     search: true,  save: false, init: () => LedgerPage.init() },
+  split:    { title: '분할 뷰',  search: false, save: true,  init: () => SplitPage.init() },
   memo:     { title: '메모',     search: false, save: true,  init: () => MemoPage.init() },
   compare:  { title: '카드 대조', search: false, save: false, init: () => ComparePage.init() },
   settings: { title: '설정',     search: false, save: true,  init: () => SettingsPage.init() },
@@ -114,6 +115,7 @@ function navigateTo(pageId) {
   // 저장 버튼 핸들러 교체
   saveBtn.onclick = null;
   if (pageId === 'input')    saveBtn.onclick = () => InputPage.save();
+  if (pageId === 'split')    saveBtn.onclick = () => InputPage.save();
   if (pageId === 'memo')     saveBtn.onclick = () => MemoPage.save();
   if (pageId === 'settings') saveBtn.onclick = () => SettingsPage.save();
 
@@ -213,10 +215,15 @@ async function initApp() {
     APP_STATE.currentMonth = APP_STATE.months[0];
     APP_STATE.settings = settings || defaultSettings();
   } catch {
-    // GAS 미연결 시 목업 데이터로 시작
+    // GAS 미연결 시 localStorage → 기본값 순으로 fallback
     APP_STATE.months = [currentYearMonth()];
     APP_STATE.currentMonth = APP_STATE.months[0];
-    APP_STATE.settings = defaultSettings();
+    try {
+      const saved = localStorage.getItem('ledger_settings');
+      APP_STATE.settings = saved ? JSON.parse(saved) : defaultSettings();
+    } catch {
+      APP_STATE.settings = defaultSettings();
+    }
     showToast('오프라인 모드 — GAS URL을 설정해주세요');
   }
 
