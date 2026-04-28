@@ -6,7 +6,7 @@
 
 const API = (() => {
   // ★ 배포 후 실제 GAS 웹앱 URL로 교체
-  const GAS_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbzRyS2tuBtUaTbhtu3-VtYzQiXCL8LlPuzEW_QxvwavVC-njEKlaYNTRnSqm1h4nRO3/exec';
 
   // 로컬 캐시 (localStorage)
   const CACHE_PREFIX = 'ledger_';
