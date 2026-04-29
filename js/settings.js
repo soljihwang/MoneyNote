@@ -1,17 +1,18 @@
 /**
- * settings.js v3 — 카드/항목 비활성, 불필요 토글 제거
+ * settings.js v4 — 카드/구분 설정 저장 안정화
  */
 
 const SettingsPage = (() => {
   let _settings = null;
 
   async function init() {
-    _settings = JSON.parse(JSON.stringify(APP_STATE.settings));
+    _settings = normalizeSettings(JSON.parse(JSON.stringify(APP_STATE.settings || defaultSettings())));
     render();
   }
 
   function render() {
     const s = _settings;
+
     Utils.el('content').innerHTML = `
       <div class="page active" id="p-settings">
 
@@ -21,9 +22,11 @@ const SettingsPage = (() => {
           <table class="settings-table" id="card-settings-tbl">
             <thead><tr>
               <th style="width:110px">카드명</th>
-              <th>실적 허들</th><th>할인 한도</th>
-              <th>기본 실적</th><th>기본 할인</th>
-              <th style="width:60px">구분</th>
+              <th>실적 허들</th>
+              <th>할인 한도</th>
+              <th>기본 실적</th>
+              <th>기본 할인</th>
+              <th style="width:70px">구분</th>
               <th style="width:40px;text-align:center">비활성</th>
               <th style="width:28px"></th>
             </tr></thead>
@@ -37,7 +40,10 @@ const SettingsPage = (() => {
         <div class="settings-section">
           <div class="settings-section-title">구분 / 월 목표금액</div>
           <div style="display:grid;grid-template-columns:120px 1fr 50px 24px;gap:6px;font-size:9px;color:var(--text3);margin-bottom:4px">
-            <span>구분명</span><span>월 목표금액</span><span style="text-align:center">비활성</span><span></span>
+            <span>구분명</span>
+            <span>월 목표금액</span>
+            <span style="text-align:center">비활성</span>
+            <span></span>
           </div>
           <div id="cat-settings-rows">
             ${s.categories.map((c, i) => catRowHtml(i, c.name, c.budget, c.inactive)).join('')}
@@ -64,22 +70,24 @@ const SettingsPage = (() => {
 
   function cardRowHtml(i, c) {
     const inactive = c.inactive ? 'checked' : '';
-    return `<tr data-ci="${i}" style="${c.inactive?'opacity:.45':''}">
+    const owner = c.owner || 'me';
+
+    return `<tr data-ci="${i}" style="${c.inactive ? 'opacity:.45' : ''}">
       <td><input data-ci="${i}" data-key="name" value="${esc(c.name)}" placeholder="카드명" /></td>
       <td><input type="number" data-ci="${i}" data-key="perf" value="${c.perf || 0}" /></td>
       <td><input type="number" data-ci="${i}" data-key="disc" value="${c.disc || 0}" placeholder="0" /></td>
       <td><select data-ci="${i}" data-key="perfDefault">
-        <option value="true"${c.perfDefault?' selected':''}>포함</option>
-        <option value="false"${!c.perfDefault?' selected':''}>미포함</option>
+        <option value="true"${c.perfDefault !== false ? ' selected' : ''}>포함</option>
+        <option value="false"${c.perfDefault === false ? ' selected' : ''}>미포함</option>
       </select></td>
       <td><select data-ci="${i}" data-key="discDefault">
-        <option value="true"${c.discDefault?' selected':''}>포함</option>
-        <option value="false"${!c.discDefault?' selected':''}>미포함</option>
+        <option value="true"${c.discDefault === true ? ' selected' : ''}>포함</option>
+        <option value="false"${c.discDefault !== true ? ' selected' : ''}>미포함</option>
       </select></td>
       <td><select data-ci="${i}" data-key="owner" style="width:100%;height:26px;font-size:11px;padding:0 4px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
-        <option value="me"${(c.owner||'me')==='me'?' selected':''}>내 카드</option>
-        <option value="spouse"${c.owner==='spouse'?' selected':''}>남편 카드</option>
-        <option value="common"${c.owner==='common'?' selected':''}>공통</option>
+        <option value="me"${owner === 'me' ? ' selected' : ''}>내 카드</option>
+        <option value="spouse"${owner === 'spouse' ? ' selected' : ''}>남편 카드</option>
+        <option value="common"${owner === 'common' ? ' selected' : ''}>공통</option>
       </select></td>
       <td style="text-align:center"><input type="checkbox" data-ci="${i}" data-key="inactive" ${inactive} style="accent-color:var(--blue)" /></td>
       <td><button class="btn-icon" onclick="SettingsPage.removeCard(${i})">-</button></td>
@@ -87,11 +95,11 @@ const SettingsPage = (() => {
   }
 
   function catRowHtml(i, name, budget, inactive) {
-    return `<div class="cat-settings-row" data-cat-idx="${i}" style="grid-template-columns:120px 1fr 50px 24px;${inactive?'opacity:.45':''}">
+    return `<div class="cat-settings-row" data-cat-idx="${i}" style="grid-template-columns:120px 1fr 50px 24px;${inactive ? 'opacity:.45' : ''}">
       <input data-cat="${i}" data-key="name" value="${esc(name)}" placeholder="구분명" />
       <input type="number" data-cat="${i}" data-key="budget" value="${budget || 0}" />
       <div style="display:flex;align-items:center;justify-content:center">
-        <input type="checkbox" data-cat="${i}" data-key="inactive" ${inactive?'checked':''} style="accent-color:var(--blue)" />
+        <input type="checkbox" data-cat="${i}" data-key="inactive" ${inactive ? 'checked' : ''} style="accent-color:var(--blue)" />
       </div>
       <button class="btn-icon" onclick="SettingsPage.removeCat(${i})">-</button>
     </div>`;
@@ -99,18 +107,38 @@ const SettingsPage = (() => {
 
   function bindEvents() {
     const cardTbl = Utils.el('card-settings-tbl');
+
     cardTbl.addEventListener('input', e => {
       const { ci, key } = e.target.dataset;
       if (ci === undefined || !key || !_settings.cards[+ci]) return;
-      if (key === 'perf' || key === 'disc') _settings.cards[+ci][key] = +e.target.value;
-      else _settings.cards[+ci][key] = e.target.value;
+
+      const card = _settings.cards[+ci];
+
+      if (key === 'perf' || key === 'disc') {
+        card[key] = Number(e.target.value || 0);
+      } else {
+        card[key] = e.target.value;
+      }
     });
+
     cardTbl.addEventListener('change', e => {
       const { ci, key } = e.target.dataset;
       if (ci === undefined || !key || !_settings.cards[+ci]) return;
-      if (e.target.type === 'checkbox') _settings.cards[+ci][key] = e.target.checked;
-      else if (key === 'owner') _settings.cards[+ci][key] = e.target.value;
-      else _settings.cards[+ci][key] = e.target.value === 'true';
+
+      const card = _settings.cards[+ci];
+
+      if (e.target.type === 'checkbox') {
+        card[key] = e.target.checked;
+      } else if (key === 'perfDefault' || key === 'discDefault') {
+        card[key] = e.target.value === 'true';
+      } else if (key === 'owner') {
+        card[key] = e.target.value || 'me';
+      } else if (key === 'perf' || key === 'disc') {
+        card[key] = Number(e.target.value || 0);
+      } else {
+        card[key] = e.target.value;
+      }
+
       if (key === 'inactive') {
         const tr = e.target.closest('tr');
         if (tr) tr.style.opacity = e.target.checked ? '.45' : '';
@@ -119,43 +147,72 @@ const SettingsPage = (() => {
 
     Utils.el('cat-settings-rows').addEventListener('input', e => {
       const { cat: idx, key } = e.target.dataset;
-      if (idx === undefined || !key) return;
-      _settings.categories[+idx][key] = key === 'budget' ? +e.target.value : e.target.value;
+      if (idx === undefined || !key || !_settings.categories[+idx]) return;
+
+      if (key === 'budget') {
+        _settings.categories[+idx][key] = Number(e.target.value || 0);
+      } else {
+        _settings.categories[+idx][key] = e.target.value;
+      }
     });
+
     Utils.el('cat-settings-rows').addEventListener('change', e => {
       const { cat: idx, key } = e.target.dataset;
-      if (idx === undefined || !key) return;
+      if (idx === undefined || !key || !_settings.categories[+idx]) return;
+
       if (e.target.type === 'checkbox') {
         _settings.categories[+idx][key] = e.target.checked;
+
         const row = e.target.closest('.cat-settings-row');
         if (row) row.style.opacity = e.target.checked ? '.45' : '';
       }
     });
 
     Utils.el('total-budget').addEventListener('input', e => {
-      _settings.totalBudget = +e.target.value;
+      _settings.totalBudget = Number(e.target.value || 0);
     });
   }
 
   function addCard() {
-    const newCard = { name: '', perf: 0, disc: 0, perfDefault: true, discDefault: false, owner: 'me', inactive: false };
+    const newCard = {
+      name: '',
+      perf: 0,
+      disc: 0,
+      perfDefault: true,
+      discDefault: false,
+      owner: 'me',
+      inactive: false,
+    };
+
     _settings.cards.push(newCard);
+
     const tbody = Utils.el('card-tbody');
     const i = _settings.cards.length - 1;
+
     tbody.insertAdjacentHTML('beforeend', cardRowHtml(i, newCard));
     tbody.lastElementChild.querySelector('input[data-key=name]').focus();
   }
 
   function removeCard(idx) {
-    if (_settings.cards.length <= 1) { showToast('카드는 최소 1개 필요합니다'); return; }
+    if (_settings.cards.length <= 1) {
+      showToast('카드는 최소 1개 필요합니다');
+      return;
+    }
+
     _settings.cards.splice(idx, 1);
     Utils.el('card-tbody').innerHTML = _settings.cards.map((c, i) => cardRowHtml(i, c)).join('');
   }
 
   function addCat() {
-    _settings.categories.push({ name: '', budget: 0, inactive: false });
+    _settings.categories.push({
+      name: '',
+      budget: 0,
+      inactive: false,
+    });
+
     const rows = Utils.el('cat-settings-rows');
     const i = _settings.categories.length - 1;
+
     rows.insertAdjacentHTML('beforeend', catRowHtml(i, '', 0, false));
     rows.lastElementChild.querySelector('input[data-key=name]').focus();
   }
@@ -166,24 +223,77 @@ const SettingsPage = (() => {
   }
 
   async function save() {
-    const btn = Utils.el('top-save-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+    document.activeElement?.blur?.();
 
-    let savedToGas = false;
+    _settings = normalizeSettings(_settings);
+
+    const btn = Utils.el('top-save-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '저장 중...';
+    }
+
     try {
       await API.saveSettings(_settings);
-      savedToGas = true;
-    } catch {}
 
-    try { localStorage.setItem('ledger_settings', JSON.stringify(_settings)); } catch {}
-    APP_STATE.settings = JSON.parse(JSON.stringify(_settings));
-    showToast(savedToGas ? '설정 저장됨' : '설정 저장됨 (로컬)');
-    if (btn) { btn.disabled = false; btn.textContent = '설정 저장'; }
+      localStorage.setItem('ledger_settings', JSON.stringify(_settings));
+      APP_STATE.settings = JSON.parse(JSON.stringify(_settings));
+
+      API.clearCacheForMonth('');
+      showToast('설정 저장됨');
+
+      render();
+    } catch (err) {
+      console.error('[SettingsPage.save]', err);
+      showToast('설정 저장 실패: ' + err.message, 3500);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '설정 저장';
+      }
+    }
+  }
+
+  function normalizeSettings(settings) {
+    const s = settings || {};
+
+    return {
+      cards: Array.isArray(s.cards) ? s.cards.map(card => ({
+        name: card.name || '',
+        perf: Number(card.perf || 0),
+        disc: Number(card.disc || 0),
+        perfDefault: card.perfDefault !== false,
+        discDefault: card.discDefault === true,
+        owner: card.owner || 'me',
+        inactive: card.inactive === true,
+      })) : [],
+
+      categories: Array.isArray(s.categories) ? s.categories.map(cat => ({
+        name: cat.name || '',
+        budget: Number(cat.budget || 0),
+        inactive: cat.inactive === true,
+      })) : [],
+
+      totalBudget: Number(s.totalBudget || 0),
+
+      toggles: s.toggles || {},
+    };
   }
 
   function esc(s) {
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
-  return { init, save, addCard, removeCard, addCat, removeCat };
+  return {
+    init,
+    save,
+    addCard,
+    removeCard,
+    addCat,
+    removeCat,
+  };
 })();

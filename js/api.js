@@ -5,6 +5,8 @@
  * - 모든 요청은 GET으로 처리합니다.
  * - 거래내역 저장은 안전 저장 플로우를 사용합니다.
  *   beginTransactionsSave → appendTransactionsDraft 여러 번 → commitTransactionsSave
+ * - 메모 이미지는 GAS URL 길이 제한 때문에 dataUrl은 서버로 보내지 않고,
+ *   split.js에서 브라우저 localStorage에 보관합니다.
  */
 
 const API = (() => {
@@ -170,13 +172,17 @@ const API = (() => {
     if (m.cards) {
       m.cards.forEach(card => {
         if (card.images) {
-          card.images = card.images.map(img => ({ name: img.name || '' }));
+          card.images = card.images.map(img => ({
+            name: img.name || '',
+          }));
         }
       });
     }
 
     if (m.images) {
-      m.images = m.images.map(img => ({ name: img.name || '' }));
+      m.images = m.images.map(img => ({
+        name: img.name || '',
+      }));
     }
 
     return m;
@@ -190,10 +196,10 @@ const API = (() => {
         name: card.name || '',
         perf: Number(card.perf || 0),
         disc: Number(card.disc || 0),
-        perfDefault: !!card.perfDefault,
-        discDefault: !!card.discDefault,
+        perfDefault: card.perfDefault !== false,
+        discDefault: card.discDefault === true,
         owner: card.owner || 'me',
-        inactive: !!card.inactive,
+        inactive: card.inactive === true,
       }));
     }
 
@@ -201,7 +207,7 @@ const API = (() => {
       s.categories = s.categories.map(cat => ({
         name: cat.name || '',
         budget: Number(cat.budget || 0),
-        inactive: !!cat.inactive,
+        inactive: cat.inactive === true,
       }));
     }
 
