@@ -1,7 +1,10 @@
 /**
- * api.js — GAS 통신 레이어 (GET only — CORS 우회)
- * GAS 웹앱은 POST preflight CORS를 지원하지 않으므로
- * 모든 요청(읽기/쓰기)을 GET + URL 파라미터로 처리
+ * api.js — GAS 통신 레이어
+ *
+ * 중요:
+ * - 모든 요청은 GET으로 처리합니다.
+ * - 거래내역 저장은 안전 저장 플로우를 사용합니다.
+ *   beginTransactionsSave → appendTransactionsDraft 여러 번 → commitTransactionsSave
  */
 
 const API = (() => {
@@ -10,10 +13,7 @@ const API = (() => {
   const CACHE_PREFIX = 'ledger_';
   const CACHE_TTL = 5 * 60 * 1000;
 
-  // GET URL 안정성 기준
-  // 한글/특수문자는 URL 인코딩 시 길이가 크게 늘어나므로 작게 잡습니다.
-  const TX_CHUNK_SIZE = 5;
-  const MAX_URL_LENGTH = 1800;
+  const TX_CHUNK_SIZE = 3;
 
   function cacheKey(action, month) {
     return CACHE_PREFIX + action + '_' + (month || 'global');
@@ -62,9 +62,7 @@ const API = (() => {
       url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
     });
 
-    // 캐시 방지
     url.searchParams.set('_t', String(Date.now()));
-
     return url;
   }
 
@@ -105,55 +103,17 @@ const API = (() => {
     body = body || {};
     const month = body.month || (APP_STATE && APP_STATE.currentMonth) || '';
 
-    // 거래내역 저장은 무조건 작은 단위로 쪼갭니다.
-    // 기존 방식은 JSON 문자열 길이만 보고 판단해서 한글 URL 인코딩 후 400 오류가 날 수 있었습니다.
     if (action === 'saveTransactions' && Array.isArray(body.rows)) {
-      return writeTransactionsInChunks(body.month, body.rows);
+      return saveTransactionsSafely(body.month, body.rows);
     }
 
     return writeOnce(action, body, month);
-  }
-
-  async function writeTransactionsInChunks(month, rows) {
-    const safeRows = Array.isArray(rows) ? rows : [];
-
-    // 첫 요청은 기존 시트 내용을 지우고 첫 chunk 저장
-    // 이후 요청은 appendTransactions로 이어 붙임
-    if (safeRows.length === 0) {
-      return writeOnce('saveTransactions', { month, rows: [] }, month);
-    }
-
-    let last = null;
-
-    for (let i = 0; i < safeRows.length; i += TX_CHUNK_SIZE) {
-      const chunk = safeRows.slice(i, i + TX_CHUNK_SIZE);
-      const chunkAction = i === 0 ? 'saveTransactions' : 'appendTransactions';
-      const chunkBody = { month, rows: chunk };
-
-      // 혹시 chunk 5개도 URL이 길면 1개씩 재분할
-      const testUrl = buildUrl(chunkAction, { payload: chunkBody }).toString();
-      if (testUrl.length > MAX_URL_LENGTH && chunk.length > 1) {
-        for (let j = 0; j < chunk.length; j += 1) {
-          const oneAction = i === 0 && j === 0 ? 'saveTransactions' : 'appendTransactions';
-          last = await writeOnce(oneAction, { month, rows: [chunk[j]] }, month);
-        }
-      } else {
-        last = await writeOnce(chunkAction, chunkBody, month);
-      }
-    }
-
-    clearCacheForMonth(month);
-    return last || { ok: true, count: safeRows.length };
   }
 
   async function writeOnce(action, body, month) {
     const url = buildUrl(action, {
       payload: body,
     });
-
-    if (url.toString().length > MAX_URL_LENGTH && action !== 'saveTransactions' && action !== 'appendTransactions') {
-      console.warn('[API] URL이 긴 요청입니다:', action, url.toString().length);
-    }
 
     const res = await fetch(url.toString(), {
       method: 'GET',
@@ -172,6 +132,36 @@ const API = (() => {
 
     clearCacheForMonth(month);
     return json.data;
+  }
+
+  async function saveTransactionsSafely(month, rows) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const token = makeSaveToken();
+
+    await writeOnce('beginTransactionsSave', { month, token }, month);
+
+    for (let i = 0; i < safeRows.length; i += TX_CHUNK_SIZE) {
+      const chunk = safeRows.slice(i, i + TX_CHUNK_SIZE);
+
+      await writeOnce('appendTransactionsDraft', {
+        month,
+        token,
+        rows: chunk,
+      }, month);
+    }
+
+    const result = await writeOnce('commitTransactionsSave', {
+      month,
+      token,
+      expectedCount: safeRows.length,
+    }, month);
+
+    clearCacheForMonth(month);
+    return result;
+  }
+
+  function makeSaveToken() {
+    return String(Date.now()) + '_' + Math.random().toString(36).slice(2, 10);
   }
 
   function sanitizeMemo(memo) {

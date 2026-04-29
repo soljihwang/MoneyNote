@@ -1,19 +1,12 @@
 /**
- * Code.gs — 가계부 GAS 백엔드
- *
- * 시트 구조:
- *   [META]         — 설정 데이터 (카드, 구분, 토글)
- *   [MONTHS]       — 월 목록
- *   [2025-04]      — 월별 거래 내역 시트 (시트명 = YYYY-MM)
- *   [MEMO_2025-04] — 월별 메모 시트
- *   [MEMO_GLOBAL]  — 월 귀속 없는 기타/공통 메모 시트
+ * Code.gs — MoneyNote GAS Backend
  *
  * 중요:
- *   - 스프레드시트 ID는 코드에 직접 쓰지 않고 Apps Script 스크립트 속성 SHEET_ID에서 가져옵니다.
- *   - Code.gs 수정 후에는 Apps Script에서 반드시 새 버전으로 재배포해야 실제 웹앱에 반영됩니다.
+ * - SHEET_ID는 Apps Script 스크립트 속성에서 읽습니다.
+ * - 거래내역 저장은 임시 시트에 먼저 저장한 뒤, 최종 커밋 시 월 시트를 교체합니다.
+ * - 기존 월 시트는 바로 삭제하지 않고 BACKUP 시트로 보관합니다.
  */
 
-// ── 진입점 ─────────────────────────────────────────────────
 function doGet(e) {
   var action = e && e.parameter ? e.parameter.action : '';
   var result;
@@ -32,33 +25,55 @@ function doGet(e) {
       case 'getMonths':
         result = getMonths();
         break;
+
       case 'getTransactions':
         result = getTransactions(e.parameter.month);
         break;
+
       case 'getMemo':
         result = getMemo(e.parameter.month);
         break;
+
       case 'getSettings':
         result = getSettings();
         break;
+
       case 'getSummary':
         result = getSummary(e.parameter.month);
         break;
+
       case 'createMonth':
         result = createMonth(payload.month);
         break;
+
       case 'saveTransactions':
         result = saveTransactions(payload.month, payload.rows);
         break;
+
       case 'appendTransactions':
         result = appendTransactions(payload.month, payload.rows);
         break;
+
+      case 'beginTransactionsSave':
+        result = beginTransactionsSave(payload.month, payload.token);
+        break;
+
+      case 'appendTransactionsDraft':
+        result = appendTransactionsDraft(payload.month, payload.token, payload.rows);
+        break;
+
+      case 'commitTransactionsSave':
+        result = commitTransactionsSave(payload.month, payload.token, payload.expectedCount);
+        break;
+
       case 'saveMemo':
         result = saveMemo(payload.month, payload.memo);
         break;
+
       case 'saveSettings':
         result = saveSettings(payload.settings);
         break;
+
       default:
         throw new Error('unknown action: ' + action);
     }
@@ -70,42 +85,7 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  var body;
-
-  try {
-    body = JSON.parse(e.postData.contents);
-  } catch (err) {
-    return jsonResponse({ error: 'JSON 파싱 실패: ' + err.message });
-  }
-
-  var action = body.action;
-  var result;
-
-  try {
-    switch (action) {
-      case 'createMonth':
-        result = createMonth(body.month);
-        break;
-      case 'saveTransactions':
-        result = saveTransactions(body.month, body.rows);
-        break;
-      case 'appendTransactions':
-        result = appendTransactions(body.month, body.rows);
-        break;
-      case 'saveMemo':
-        result = saveMemo(body.month, body.memo);
-        break;
-      case 'saveSettings':
-        result = saveSettings(body.settings);
-        break;
-      default:
-        throw new Error('unknown action: ' + action);
-    }
-
-    return jsonResponse({ data: result });
-  } catch (err) {
-    return jsonResponse({ error: err.message });
-  }
+  return jsonResponse({ error: 'POST는 사용하지 않습니다. GET action으로 호출해주세요.' });
 }
 
 function jsonResponse(obj) {
@@ -115,6 +95,7 @@ function jsonResponse(obj) {
 }
 
 // ── 스프레드시트 접근 ───────────────────────────────────────
+
 function getSpreadsheet() {
   var sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!sheetId) {
@@ -126,13 +107,18 @@ function getSpreadsheet() {
 function getOrCreateSheet(name, ss) {
   var s = ss || getSpreadsheet();
   var sheet = s.getSheetByName(name);
-  if (!sheet) {
-    sheet = s.insertSheet(name);
-  }
+  if (!sheet) sheet = s.insertSheet(name);
   return sheet;
 }
 
+function safeSheetNamePart(value) {
+  return String(value || '')
+    .replace(/[^0-9A-Za-z가-힣_-]/g, '')
+    .slice(0, 40);
+}
+
 // ── 월 목록 ────────────────────────────────────────────────
+
 function getMonths() {
   var ss = getSpreadsheet();
   var sheet = getOrCreateSheet('MONTHS', ss);
@@ -154,7 +140,6 @@ function getMonths() {
   return months.reverse();
 }
 
-// ── 월 생성 ────────────────────────────────────────────────
 function createMonth(month) {
   if (!month) throw new Error('month 파라미터 없음');
 
@@ -205,6 +190,7 @@ function calcPrevMonth(ym) {
 }
 
 // ── 거래 내역 ───────────────────────────────────────────────
+
 var TX_HEADERS = ['date', 'item', 'amount', 'shop', 'card', 'category', 'perf', 'disc', 'status', 'memo'];
 
 function getTransactions(month) {
@@ -223,18 +209,41 @@ function getTransactions(month) {
     TX_HEADERS.forEach(function(h, i) {
       obj[h] = row[i];
     });
+
     obj.date = normalizeDateValue(obj.date);
     obj.perf = obj.perf === true || obj.perf === 'TRUE' || obj.perf === 1 || obj.perf === 'true';
     obj.disc = obj.disc === true || obj.disc === 'TRUE' || obj.disc === 1 || obj.disc === 'true';
     obj.amount = obj.amount ? Number(obj.amount) : 0;
+
     return obj;
   }).filter(function(r) {
     return r.item || r.amount;
   });
 }
 
+/**
+ * 구버전 호환용.
+ * 직접 월 시트를 비우지 않고, 안전 저장 플로우를 내부에서 사용합니다.
+ */
 function saveTransactions(month, rows) {
   if (!month || !rows) throw new Error('파라미터 없음');
+
+  var token = 'legacy_' + Date.now();
+  beginTransactionsSave(month, token);
+  appendTransactionsDraft(month, token, rows);
+  return commitTransactionsSave(month, token, rows.length);
+}
+
+/**
+ * 구버전 호환용.
+ * 기존 appendTransactions 직접 호출은 위험하므로 에러를 반환합니다.
+ */
+function appendTransactions(month, rows) {
+  throw new Error('appendTransactions 직접 호출은 비활성화되었습니다. beginTransactionsSave 플로우를 사용하세요.');
+}
+
+function beginTransactionsSave(month, token) {
+  if (!month || !token) throw new Error('month/token 파라미터 없음');
 
   month = normalizeMonthValue(month) || month;
 
@@ -243,30 +252,24 @@ function saveTransactions(month, rows) {
 
   try {
     var ss = getSpreadsheet();
-    var sheet = getOrCreateSheet(month, ss);
+    var tempName = getTempTxSheetName(month, token);
 
-    ensureTransactionHeader(sheet);
-
-    var lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      sheet.getRange(2, 1, lastRow - 1, TX_HEADERS.length).clearContent();
+    var oldTemp = ss.getSheetByName(tempName);
+    if (oldTemp) {
+      ss.deleteSheet(oldTemp);
     }
 
-    if (!rows.length) {
-      return { ok: true, count: 0 };
-    }
+    var tempSheet = ss.insertSheet(tempName);
+    ensureTransactionHeader(tempSheet);
 
-    var values = rows.map(rowToTransactionValues);
-    sheet.getRange(2, 1, values.length, TX_HEADERS.length).setValues(values);
-
-    return { ok: true, count: rows.length };
+    return { ok: true, tempSheet: tempName };
   } finally {
     lock.releaseLock();
   }
 }
 
-function appendTransactions(month, rows) {
-  if (!month || !rows) throw new Error('파라미터 없음');
+function appendTransactionsDraft(month, token, rows) {
+  if (!month || !token || !rows) throw new Error('month/token/rows 파라미터 없음');
 
   month = normalizeMonthValue(month) || month;
 
@@ -275,7 +278,12 @@ function appendTransactions(month, rows) {
 
   try {
     var ss = getSpreadsheet();
-    var sheet = getOrCreateSheet(month, ss);
+    var tempName = getTempTxSheetName(month, token);
+    var sheet = ss.getSheetByName(tempName);
+
+    if (!sheet) {
+      throw new Error('임시 저장 시트가 없습니다: ' + tempName);
+    }
 
     ensureTransactionHeader(sheet);
 
@@ -285,6 +293,7 @@ function appendTransactions(month, rows) {
 
     var values = rows.map(rowToTransactionValues);
     var startRow = Math.max(sheet.getLastRow() + 1, 2);
+
     sheet.getRange(startRow, 1, values.length, TX_HEADERS.length).setValues(values);
 
     return { ok: true, count: rows.length };
@@ -293,22 +302,110 @@ function appendTransactions(month, rows) {
   }
 }
 
+function commitTransactionsSave(month, token, expectedCount) {
+  if (!month || !token) throw new Error('month/token 파라미터 없음');
+
+  month = normalizeMonthValue(month) || month;
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  var backupName = '';
+
+  try {
+    var ss = getSpreadsheet();
+    var tempName = getTempTxSheetName(month, token);
+    var tempSheet = ss.getSheetByName(tempName);
+
+    if (!tempSheet) {
+      throw new Error('커밋할 임시 저장 시트가 없습니다: ' + tempName);
+    }
+
+    ensureTransactionHeader(tempSheet);
+
+    var tempCount = Math.max(tempSheet.getLastRow() - 1, 0);
+    expectedCount = Number(expectedCount || 0);
+
+    if (tempCount !== expectedCount) {
+      throw new Error('임시 저장 건수 불일치: expected=' + expectedCount + ', actual=' + tempCount);
+    }
+
+    var oldSheet = ss.getSheetByName(month);
+    backupName = getBackupTxSheetName(month);
+
+    if (oldSheet) {
+      oldSheet.setName(backupName);
+    }
+
+    tempSheet.setName(month);
+    ensureTransactionHeader(tempSheet);
+
+    // MONTHS에 월이 없으면 추가
+    var monthsSheet = getOrCreateSheet('MONTHS', ss);
+    var existing = monthsSheet.getDataRange().getValues().map(function(r) {
+      return normalizeMonthValue(r[0]);
+    });
+
+    if (existing.indexOf(month) < 0) {
+      monthsSheet.appendRow([month]);
+    }
+
+    return {
+      ok: true,
+      count: tempCount,
+      backupSheet: backupName || null
+    };
+  } catch (err) {
+    // 가능한 범위에서 원복 시도
+    try {
+      var ss2 = getSpreadsheet();
+      var monthSheet = ss2.getSheetByName(month);
+      var backupSheet = backupName ? ss2.getSheetByName(backupName) : null;
+
+      if (!monthSheet && backupSheet) {
+        backupSheet.setName(month);
+      }
+    } catch (restoreErr) {}
+
+    throw err;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getTempTxSheetName(month, token) {
+  return '_TMP_TX_' + safeSheetNamePart(month) + '_' + safeSheetNamePart(token);
+}
+
+function getBackupTxSheetName(month) {
+  var now = new Date();
+  return '_BACKUP_TX_' + safeSheetNamePart(month) + '_' +
+    now.getFullYear() +
+    pad(now.getMonth() + 1) +
+    pad(now.getDate()) + '_' +
+    pad(now.getHours()) +
+    pad(now.getMinutes()) +
+    pad(now.getSeconds());
+}
+
 function ensureTransactionHeader(sheet) {
   sheet.getRange(1, 1, 1, TX_HEADERS.length).setValues([TX_HEADERS]);
 }
 
 function rowToTransactionValues(r) {
+  r = r || {};
+
   return TX_HEADERS.map(function(h) {
     if (h === 'date') return normalizeDateValue(r[h]);
     if (h === 'amount') return r[h] !== undefined && r[h] !== '' ? Number(r[h]) : '';
-    if (h === 'perf' || h === 'disc') return r[h] === true || r[h] === 'TRUE' || r[h] === 'true' || r[h] === 1;
-    return r[h] !== undefined && r[h] !== null ? r[h] : '';
+    if (h === 'perf' || h === 'disc') {
+      return r[h] === true || r[h] === 'TRUE' || r[h] === 'true' || r[h] === 1;
+    }
+    return r[h] !== undefined && r[h] !== null ? String(r[h]) : '';
   });
 }
 
 // ── 메모 ───────────────────────────────────────────────────
-// 메모 시트 구조: A열=섹션, B열=JSON 또는 텍스트
-// 섹션: cards, payments, checklist, benefits, freeText, images
 
 function getMemoSheetName(month) {
   return month === 'GLOBAL' ? 'MEMO_GLOBAL' : 'MEMO_' + month;
@@ -414,6 +511,7 @@ function defaultMemo() {
 }
 
 // ── 설정 ───────────────────────────────────────────────────
+
 function getSettings() {
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName('META');
@@ -454,12 +552,7 @@ function saveSettings(settings) {
     var ss = getSpreadsheet();
     var sheet = getOrCreateSheet('META', ss);
 
-    if (settings.cards) {
-      settings.cards = settings.cards.map(function(card) {
-        if (!card.owner) card.owner = 'me';
-        return card;
-      });
-    }
+    settings = normalizeSettingsForSave(settings);
 
     var rows = Object.keys(settings).map(function(k) {
       return [k, JSON.stringify(settings[k])];
@@ -477,7 +570,41 @@ function saveSettings(settings) {
   }
 }
 
+function normalizeSettingsForSave(settings) {
+  settings = settings || {};
+
+  if (settings.cards) {
+    settings.cards = settings.cards.map(function(card) {
+      return {
+        name: card.name || '',
+        perf: Number(card.perf || 0),
+        disc: Number(card.disc || 0),
+        perfDefault: !!card.perfDefault,
+        discDefault: !!card.discDefault,
+        owner: card.owner || 'me',
+        inactive: !!card.inactive
+      };
+    });
+  }
+
+  if (settings.categories) {
+    settings.categories = settings.categories.map(function(cat) {
+      return {
+        name: cat.name || '',
+        budget: Number(cat.budget || 0),
+        inactive: !!cat.inactive
+      };
+    });
+  }
+
+  settings.totalBudget = Number(settings.totalBudget || 0);
+  settings.toggles = settings.toggles || {};
+
+  return settings;
+}
+
 // ── 대시보드 집계 ───────────────────────────────────────────
+
 function getSummary(month) {
   var rows = getTransactions(month);
   var settings = getSettings() || {};
@@ -515,7 +642,9 @@ function getSummary(month) {
 }
 
 // ── 유틸 ───────────────────────────────────────────────────
+
 function pad(n) {
+  n = Number(n);
   return n < 10 ? '0' + n : String(n);
 }
 
@@ -543,6 +672,11 @@ function normalizeDateValue(value) {
   }
 
   var s = String(value).trim();
+
+  var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+  if (iso) {
+    return iso[1] + '-' + iso[2] + '-' + iso[3];
+  }
 
   var full = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (full) {
