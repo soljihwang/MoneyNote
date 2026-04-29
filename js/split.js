@@ -216,8 +216,19 @@ const SplitPage = (() => {
     const cards = settings.cards.filter(c => c && typeof c === 'object' && c.name && !c.inactive).map(c => c.name);
     const cats  = settings.categories.filter(c => c && typeof c === 'object' && c.name && !c.inactive).map(c => c.name);
 
-    const fromNum = _filters.dateFrom ? parseDateStr(_filters.dateFrom) : 0;
-    const toNum   = _filters.dateTo   ? parseDateStr(_filters.dateTo)   : 99999;
+    // 날짜 필터: 숫자만 입력해도 검색 (예: 1 → 해당월 1일)
+    function filterDateNum(s) {
+      if (!s) return null;
+      s = s.trim();
+      if (/^\d{1,2}$/.test(s)) {
+        const ym = APP_STATE.currentMonth || '';
+        const m = ym.split('-')[1];
+        return m ? +m*100 + +s : null;
+      }
+      return parseDateStr(s);
+    }
+    const fromNum = filterDateNum(_filters.dateFrom) ?? 0;
+    const toNum   = filterDateNum(_filters.dateTo)   ?? 99999;
 
     const filtered = _rows.map((r,i) => ({...r, _idx:i})).filter(r => {
       if (_filters.card     && r.card !== _filters.card) return false;
@@ -312,7 +323,7 @@ const SplitPage = (() => {
       <td style="text-align:center;padding:0"><input type="checkbox" data-idx="${idx}" data-field="perf" ${row.perf?'checked':''} style="accent-color:var(--blue);width:12px;height:12px" /></td>
       <td style="text-align:center;padding:0"><input type="checkbox" data-idx="${idx}" data-field="disc" ${row.disc?'checked':''} ${!isMg?'disabled':''} style="accent-color:var(--blue);width:12px;height:12px" /></td>
       <td style="padding:0 1px">${sel(idx,'status',stOpts,'font-size:10px')}</td>
-      <td style="padding:0 1px;text-align:center"><button class="sp-rm" data-idx="${idx}" style="width:16px;height:16px;border:none;background:none;cursor:pointer;font-size:14px;padding:0;line-height:1;color:var(--text3)" title="삭제">⌫</button></td>
+      <td style="padding:0 1px;text-align:center"><button class="sp-rm" data-idx="${idx}" style="width:18px;height:18px;border:none;background:none;cursor:pointer;font-size:11px;padding:0;line-height:1;color:var(--text3);display:flex;align-items:center;justify-content:center;border-radius:3px" title="삭제" onmouseover="this.style.background='var(--red-bg)';this.style.color='var(--red-text)'" onmouseout="this.style.background='';this.style.color='var(--text3)'">✕</button></td>
     </tr>`;
   }
 
@@ -320,13 +331,8 @@ const SplitPage = (() => {
     const cardOpts = cards.map(c=>`<option value="${c}">${c}</option>`).join('');
     const catOpts  = '<option value="">-</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
     const stOpts   = [['','-'],['1','배송'],['2','확인'],['3','예정']].map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
-    const today = new Date();
-    const ym = APP_STATE.currentMonth || '';
-    const [y, m] = ym.split('-');
-    const defaultDate = y && m ? `${+m}/${today.getDate()}` : `${today.getMonth()+1}/${today.getDate()}`;
-
     return `<tr id="sp-new-row" style="border-bottom:0.5px solid var(--border);background:var(--bg2)">
-      <td style="padding:0 2px">${ninp('date', defaultDate, '날짜')}</td>
+      <td style="padding:0 2px">${ninp('date', '', '날짜')}</td>
       <td style="padding:0 2px">${ninp('item', '', '항목명')}</td>
       <td style="padding:0 2px">${ninp('amount', '', '0', 'text-align:right')}</td>
       <td style="padding:0 1px">${nsel('card', cardOpts)}</td>
@@ -394,11 +400,12 @@ const SplitPage = (() => {
     if (field === 'amount') {
       const raw = el.value.replace(/[^0-9]/g,'');
       _rows[idx].amount = raw ? +raw : '';
-      if (raw) { const start=el.selectionStart; el.value=Utils.fmt(raw); }
+      if (raw) el.value = Utils.fmt(raw);
     } else {
       _rows[idx][field] = el.value;
     }
     scheduleSave();
+    renderDash(); // 실시간 대시보드 반영
   }
 
   function onChange(e) {
@@ -433,6 +440,33 @@ const SplitPage = (() => {
 
   function onKeydown(e) {
     const el = e.target;
+
+    // 방향키 셀 이동
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key) &&
+        (el.classList.contains('tbl-inp') || el.classList.contains('new-inp'))) {
+      const tbody = Utils.el('sp-tbody');
+      if (!tbody) return;
+      const allRows = [...tbody.querySelectorAll('tr')];
+      const tr = el.closest('tr');
+      const trIdx = allRows.indexOf(tr);
+      const cells = [...tr.querySelectorAll('input.tbl-inp,input.new-inp,select.tbl-sel,select.new-sel')];
+      const cellIdx = cells.indexOf(el);
+      if (e.key === 'ArrowLeft' && cellIdx > 0) { e.preventDefault(); cells[cellIdx-1].focus(); return; }
+      if (e.key === 'ArrowRight' && cellIdx < cells.length-1) { e.preventDefault(); cells[cellIdx+1].focus(); return; }
+      if (e.key === 'ArrowUp' && trIdx > 0) {
+        e.preventDefault();
+        const prev = [...allRows[trIdx-1].querySelectorAll('input.tbl-inp,input.new-inp,select.tbl-sel,select.new-sel')];
+        if (prev[cellIdx]) prev[cellIdx].focus();
+        return;
+      }
+      if (e.key === 'ArrowDown' && trIdx < allRows.length-1) {
+        e.preventDefault();
+        const next = [...allRows[trIdx+1].querySelectorAll('input.tbl-inp,input.new-inp,select.tbl-sel,select.new-sel')];
+        if (next[cellIdx]) next[cellIdx].focus();
+        return;
+      }
+    }
+
     // 새 행에서 Enter → 행 확정
     if (el.classList.contains('new-inp') && e.key === 'Enter') {
       e.preventDefault();

@@ -1,339 +1,250 @@
 /**
- * memo.js — 메모 탭
+ * memo.js — 글로벌 메모 (월에 귀속되지 않음)
+ * 저장소: GAS MEMO_GLOBAL 시트
  */
 
 const MemoPage = (() => {
   let _memo = null;
+  let _saveTimer = null;
+  const DEBOUNCE = 800;
+  const GLOBAL_KEY = 'GLOBAL';
 
   async function init() {
-    await ensureMemo();
-    _memo = JSON.parse(JSON.stringify(APP_STATE.memo)); // deep copy
+    const content = Utils.el('content');
+    content.innerHTML = '<div class="page-loading"><div class="loading-spinner"></div></div>';
+
+    try {
+      const data = await API.getMemo(GLOBAL_KEY);
+      _memo = data || defaultGlobalMemo();
+    } catch {
+      const saved = localStorage.getItem('ledger_global_memo');
+      _memo = saved ? JSON.parse(saved) : defaultGlobalMemo();
+    }
+    if (!_memo.cards) _memo.cards = [];
+
     render();
+  }
+
+  function defaultGlobalMemo() {
+    return { cards: [] };
   }
 
   function render() {
     const content = Utils.el('content');
     content.innerHTML = `
       <div class="page active" id="p-memo">
-        <div class="memo-grid">
-
-          <!-- 결제 정보 -->
-          <div class="card-raised">
-            <div class="memo-card-title">
-              결제 정보
-              <button class="memo-edit-btn" id="btn-edit-payments">편집</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-size:12px;color:var(--text2)">월에 귀속되지 않는 공통 메모</div>
+          <div style="position:relative">
+            <button id="memo-add-btn" class="btn btn-sm">+ 추가</button>
+            <div id="memo-add-menu" style="display:none;position:absolute;right:0;top:30px;background:var(--bg1);border:0.5px solid var(--border2);border-radius:6px;padding:4px 0;z-index:50;min-width:120px;box-shadow:0 4px 12px rgba(0,0,0,.1)">
+              ${['checklist:체크리스트','free:자유 메모','info:정보','image:이미지'].map(s => {
+                const [type,label] = s.split(':');
+                return `<div data-type="${type}" class="memo-type-opt" style="padding:7px 14px;font-size:12px;cursor:pointer" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">${label}</div>`;
+              }).join('')}
             </div>
-            <div id="payments-view">${renderPaymentsView()}</div>
-            <div id="payments-edit" style="display:none">${renderPaymentsEdit()}</div>
-          </div>
-
-          <!-- 체크리스트 -->
-          <div class="card-raised">
-            <div class="memo-card-title">
-              체크리스트
-              <button class="memo-edit-btn" id="btn-add-check">+ 항목</button>
-            </div>
-            <div class="checklist" id="checklist">${renderChecklist()}</div>
-          </div>
-
-          <!-- 카드 혜택 -->
-          <div class="card-raised">
-            <div class="memo-card-title">
-              카드 혜택
-              <button class="memo-edit-btn" id="btn-edit-benefits">편집</button>
-            </div>
-            <div id="benefits-view">${renderBenefitsView()}</div>
-            <div id="benefits-edit" style="display:none">${renderBenefitsEdit()}</div>
-          </div>
-
-          <!-- 자유 메모 -->
-          <div class="card-raised">
-            <div class="memo-card-title">자유 메모</div>
-            <textarea class="memo-textarea" id="free-text" placeholder="자유롭게 입력하세요...">${_memo.freeText || ''}</textarea>
-          </div>
-
-        </div>
-
-        <!-- 이미지 메모 -->
-        <div class="card-raised" style="margin-bottom:12px">
-          <div class="memo-card-title">
-            이미지 메모
-            <button class="memo-edit-btn" id="btn-add-img">+ 추가</button>
-          </div>
-          <div class="img-thumb-row" id="img-thumb-row">${renderImgThumbs()}</div>
-          <div class="img-drop-zone" id="img-drop-zone">
-            이미지를 여기에 끌어다 놓거나 클릭해서 추가
-            <input type="file" id="img-file-input" accept="image/*" multiple style="display:none" />
           </div>
         </div>
-
-        <div style="display:flex;justify-content:flex-end">
-          <button class="btn btn-primary" onclick="MemoPage.save()">저장</button>
-        </div>
+        <div id="memo-cards-wrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px"></div>
       </div>`;
 
-    bindEvents();
-  }
-
-  // ── 결제 정보 ─────────────────────────────────────────
-  function renderPaymentsView() {
-    const items = _memo.payments || [];
-    if (!items.length) return '<div style="color:var(--text3);font-size:11px">-</div>';
-    return `<table class="memo-kv-table">${items.map(p =>
-      `<tr><td>${esc(p.label)}</td><td>${esc(p.value)}</td></tr>`
-    ).join('')}</table>`;
-  }
-
-  function renderPaymentsEdit() {
-    const items = _memo.payments || [];
-    return `<table class="memo-kv-edit" id="payments-edit-tbl">
-      ${items.map((p, i) => editRow(i, p.label, p.value, 'payments')).join('')}
-    </table>
-    <button class="btn btn-sm" style="margin-top:5px" onclick="MemoPage.addKvRow('payments')">+ 행 추가</button>`;
-  }
-
-  // ── 카드 혜택 ────────────────────────────────────────
-  function renderBenefitsView() {
-    const items = _memo.benefits || [];
-    if (!items.length) return '<div style="color:var(--text3);font-size:11px">-</div>';
-    return `<table class="memo-kv-table">${items.map(p =>
-      `<tr><td>${esc(p.label)}</td><td>${esc(p.value)}</td></tr>`
-    ).join('')}</table>`;
-  }
-
-  function renderBenefitsEdit() {
-    const items = _memo.benefits || [];
-    return `<table class="memo-kv-edit" id="benefits-edit-tbl">
-      ${items.map((p, i) => editRow(i, p.label, p.value, 'benefits')).join('')}
-    </table>
-    <button class="btn btn-sm" style="margin-top:5px" onclick="MemoPage.addKvRow('benefits')">+ 행 추가</button>`;
-  }
-
-  function editRow(i, label, value, field) {
-    return `<tr>
-      <td style="width:72px"><input data-field="${field}" data-idx="${i}" data-key="label" value="${esc(label)}" placeholder="항목" /></td>
-      <td><input data-field="${field}" data-idx="${i}" data-key="value" value="${esc(value)}" placeholder="내용" /></td>
-      <td style="width:24px"><button class="btn-icon" onclick="MemoPage.removeKvRow('${field}',${i})">-</button></td>
-    </tr>`;
-  }
-
-  // ── 체크리스트 ────────────────────────────────────────
-  function renderChecklist() {
-    const items = _memo.checklist || [];
-    return items.map((item, i) => `
-      <div class="check-item${item.done ? ' done' : ''}" data-ci="${i}">
-        <input type="checkbox" ${item.done ? 'checked' : ''} onchange="MemoPage.toggleCheck(${i}, this.checked)" />
-        <input class="check-item-input" value="${esc(item.text)}" placeholder="할 일..."
-          oninput="MemoPage.updateCheck(${i}, this.value)"
-          onkeydown="if(event.key==='Enter')MemoPage.addCheck()" />
-        <button class="btn-icon" onclick="MemoPage.removeCheck(${i})">-</button>
-      </div>`
-    ).join('');
-  }
-
-  // ── 이미지 ───────────────────────────────────────────
-  function renderImgThumbs() {
-    const imgs = _memo.images || [];
-    return imgs.map((img, i) => `
-      <div class="img-thumb" title="${esc(img.name || '')}">
-        <img src="${img.dataUrl}" alt="${esc(img.name || '')}" />
-        <div class="img-thumb-del" onclick="MemoPage.removeImg(${i})">×</div>
-      </div>`
-    ).join('');
-  }
-
-  // ── 이벤트 바인딩 ────────────────────────────────────
-  function bindEvents() {
-    // 결제 정보 편집 토글
-    Utils.el('btn-edit-payments').addEventListener('click', () => {
-      toggleKvEdit('payments');
+    Utils.el('memo-add-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      const m = Utils.el('memo-add-menu');
+      m.style.display = m.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => {
+      const m = Utils.el('memo-add-menu');
+      if (m) m.style.display = 'none';
+    });
+    Utils.qsa('.memo-type-opt').forEach(opt => {
+      opt.addEventListener('click', () => {
+        addCard(opt.dataset.type);
+        Utils.el('memo-add-menu').style.display = 'none';
+      });
     });
 
-    // 카드 혜택 편집 토글
-    Utils.el('btn-edit-benefits').addEventListener('click', () => {
-      toggleKvEdit('benefits');
-    });
-
-    // 체크 추가
-    Utils.el('btn-add-check').addEventListener('click', addCheck);
-
-    // 자유 메모 실시간 반영
-    Utils.el('free-text').addEventListener('input', e => {
-      _memo.freeText = e.target.value;
-    });
-
-    // 이미지 추가 버튼
-    Utils.el('btn-add-img').addEventListener('click', () => {
-      Utils.el('img-file-input').click();
-    });
-
-    // 파일 선택
-    Utils.el('img-file-input').addEventListener('change', handleFileInput);
-
-    // 드래그앤드롭
-    const dz = Utils.el('img-drop-zone');
-    dz.addEventListener('click', () => Utils.el('img-file-input').click());
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
-    dz.addEventListener('drop', e => {
-      e.preventDefault();
-      dz.classList.remove('drag-over');
-      handleFiles(e.dataTransfer.files);
-    });
+    renderCards();
   }
 
-  function toggleKvEdit(field) {
-    const viewEl  = Utils.el(field + '-view');
-    const editEl  = Utils.el(field + '-edit');
-    const btn     = Utils.el('btn-edit-' + field);
-    const isEditing = editEl.style.display !== 'none';
+  function renderCards() {
+    const wrap = Utils.el('memo-cards-wrap');
+    if (!wrap) return;
 
-    if (isEditing) {
-      // 편집 완료 → 데이터 수집
-      collectKvData(field);
-      viewEl.innerHTML = field === 'payments' ? renderPaymentsView() : renderBenefitsView();
-      viewEl.style.display = '';
-      editEl.style.display = 'none';
-      btn.textContent = '편집';
-    } else {
-      // 편집 시작
-      editEl.innerHTML = field === 'payments' ? renderPaymentsEdit().replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '') : renderBenefitsEdit().replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '');
-      editEl.innerHTML = field === 'payments' ? renderPaymentsEdit() : renderBenefitsEdit();
-      viewEl.style.display = 'none';
-      editEl.style.display = '';
-      btn.textContent = '완료';
-      bindKvInputs(field);
+    if (!_memo.cards.length) {
+      wrap.innerHTML = `<div style="color:var(--text3);font-size:12px;padding:20px 0">+ 추가 버튼으로 메모를 만들어보세요</div>`;
+      return;
     }
+
+    wrap.innerHTML = _memo.cards.map((card, ci) => cardHtml(card, ci)).join('');
+    bindCardEvents();
   }
 
-  function bindKvInputs(field) {
-    const tbl = Utils.el(field + '-edit-tbl');
-    if (!tbl) return;
-    tbl.querySelectorAll('input').forEach(inp => {
-      inp.addEventListener('input', () => collectKvData(field));
+  function cardHtml(card, ci) {
+    const typeLabel = {checklist:'체크리스트',free:'자유 메모',info:'정보',image:'이미지'}[card.type] || card.type;
+    let body = '';
+
+    if (card.type === 'checklist') {
+      const items = card.items || [];
+      body = `<div class="checklist">
+        ${items.map((item, ii) => `
+          <div class="check-item${item.done?' done':''}" style="margin-bottom:4px">
+            <input type="checkbox" class="mc-chk" data-ci="${ci}" data-ii="${ii}" ${item.done?'checked':''} style="accent-color:var(--blue)" />
+            <input class="mc-inp check-item-input" data-ci="${ci}" data-ii="${ii}" value="${esc(item.text||'')}" placeholder="항목..." />
+            <button class="mc-item-del btn-icon" data-ci="${ci}" data-ii="${ii}">×</button>
+          </div>`).join('')}
+      </div>
+      <button class="mc-add-item btn btn-sm" data-ci="${ci}" style="margin-top:6px">+ 항목</button>`;
+    } else if (card.type === 'free') {
+      body = `<textarea class="mc-inp memo-textarea" data-ci="${ci}" placeholder="자유롭게 입력...">${esc(card.text||'')}</textarea>`;
+    } else if (card.type === 'info') {
+      const items = card.items || [];
+      body = `<table class="memo-kv-table" style="width:100%">
+        ${items.map((item, ii) => `
+          <tr>
+            <td style="width:70px"><input class="mc-inp" data-ci="${ci}" data-ii="${ii}" data-field="label" value="${esc(item.label||'')}" placeholder="항목" style="font-size:11px;border:none;background:transparent;width:100%;color:var(--text2)" /></td>
+            <td><input class="mc-inp" data-ci="${ci}" data-ii="${ii}" data-field="value" value="${esc(item.value||'')}" placeholder="내용" style="font-size:11px;border:none;background:transparent;width:100%" /></td>
+            <td style="width:18px"><button class="mc-item-del btn-icon" data-ci="${ci}" data-ii="${ii}">×</button></td>
+          </tr>`).join('')}
+      </table>
+      <button class="mc-add-item btn btn-sm" data-ci="${ci}" style="margin-top:6px">+ 행</button>`;
+    } else if (card.type === 'image') {
+      const imgs = card.images || [];
+      body = `<div class="img-thumb-row">
+        ${imgs.map((img, ii) => `
+          <div class="img-thumb" onclick="MemoPage.openLightbox('${img.dataUrl||''}')">
+            ${img.dataUrl ? `<img src="${img.dataUrl}" />` : `<div style="font-size:9px;color:var(--text3);padding:4px">${esc(img.name||'')}</div>`}
+            <div class="img-thumb-del" onclick="event.stopPropagation();MemoPage.delImg(${ci},${ii})">×</div>
+          </div>`).join('')}
+      </div>
+      <div class="img-drop-zone" onclick="document.getElementById('memo-img-input-${ci}').click()">
+        이미지 추가
+        <input type="file" id="memo-img-input-${ci}" class="mc-img-input" data-ci="${ci}" accept="image/*" multiple style="display:none" />
+      </div>`;
+    }
+
+    return `
+      <div class="card-raised" style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="mc-title-inp" data-ci="${ci}" value="${esc(card.title||typeLabel)}" style="flex:1;border:none;background:transparent;font-size:12px;font-weight:500;color:var(--text1)" placeholder="제목..." />
+          <button class="mc-del btn-icon" data-ci="${ci}" title="삭제">×</button>
+        </div>
+        ${body}
+      </div>`;
+  }
+
+  function bindCardEvents() {
+    const wrap = Utils.el('memo-cards-wrap');
+    if (!wrap) return;
+
+    wrap.querySelectorAll('.mc-title-inp').forEach(inp => {
+      inp.oninput = e => { _memo.cards[+e.target.dataset.ci].title = e.target.value; scheduleSave(); };
     });
-  }
-
-  function collectKvData(field) {
-    const tbl = Utils.el(field + '-edit-tbl');
-    if (!tbl) return;
-    const items = [];
-    const rows = tbl.querySelectorAll('tr');
-    rows.forEach(tr => {
-      const labelEl = tr.querySelector('[data-key=label]');
-      const valueEl = tr.querySelector('[data-key=value]');
-      if (labelEl && valueEl) {
-        items.push({ label: labelEl.value, value: valueEl.value });
-      }
+    wrap.querySelectorAll('.mc-del').forEach(btn => {
+      btn.onclick = () => { _memo.cards.splice(+btn.dataset.ci, 1); renderCards(); scheduleSave(); };
     });
-    _memo[field] = items;
-  }
-
-  // ── 공개 메서드 ──────────────────────────────────────
-  function addKvRow(field) {
-    _memo[field] = _memo[field] || [];
-    _memo[field].push({ label: '', value: '' });
-    const tbl = Utils.el(field + '-edit-tbl');
-    if (tbl) {
-      const i = _memo[field].length - 1;
-      const tr = document.createElement('tr');
-      tr.innerHTML = editRow(i, '', '', field);
-      tbl.appendChild(tr);
-      bindKvInputs(field);
-    }
-  }
-
-  function removeKvRow(field, idx) {
-    _memo[field].splice(idx, 1);
-    const tbl = Utils.el(field + '-edit-tbl');
-    if (tbl) tbl.innerHTML = _memo[field].map((p, i) => editRow(i, p.label, p.value, field)).join('');
-    bindKvInputs(field);
-  }
-
-  function addCheck() {
-    _memo.checklist = _memo.checklist || [];
-    _memo.checklist.push({ text: '', done: false });
-    const cl = Utils.el('checklist');
-    if (cl) {
-      cl.innerHTML = renderChecklist();
-      const last = cl.lastElementChild?.querySelector('.check-item-input');
-      if (last) last.focus();
-    }
-  }
-
-  function removeCheck(idx) {
-    _memo.checklist.splice(idx, 1);
-    const cl = Utils.el('checklist');
-    if (cl) cl.innerHTML = renderChecklist();
-  }
-
-  function toggleCheck(idx, checked) {
-    if (_memo.checklist[idx]) {
-      _memo.checklist[idx].done = checked;
-      const item = Utils.qs(`[data-ci="${idx}"]`);
-      if (item) item.classList.toggle('done', checked);
-    }
-  }
-
-  function updateCheck(idx, text) {
-    if (_memo.checklist[idx]) _memo.checklist[idx].text = text;
-  }
-
-  // ── 이미지 처리 ──────────────────────────────────────
-  function handleFileInput(e) {
-    handleFiles(e.target.files);
-    e.target.value = '';
-  }
-
-  function handleFiles(fileList) {
-    Array.from(fileList).forEach(file => {
-      if (!file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = ev => {
-        _memo.images = _memo.images || [];
-        _memo.images.push({ name: file.name, dataUrl: ev.target.result });
-        const row = Utils.el('img-thumb-row');
-        if (row) row.innerHTML = renderImgThumbs();
+    wrap.querySelectorAll('.mc-add-item').forEach(btn => {
+      btn.onclick = () => {
+        const ci = +btn.dataset.ci;
+        const card = _memo.cards[ci];
+        card.items = card.items || [];
+        card.items.push(card.type === 'checklist' ? {text:'',done:false} : {label:'',value:''});
+        renderCards(); scheduleSave();
       };
-      reader.readAsDataURL(file);
+    });
+    wrap.querySelectorAll('.mc-item-del').forEach(btn => {
+      btn.onclick = () => {
+        _memo.cards[+btn.dataset.ci].items.splice(+btn.dataset.ii, 1);
+        renderCards(); scheduleSave();
+      };
+    });
+    wrap.querySelectorAll('.mc-inp').forEach(inp => {
+      inp.oninput = e => {
+        const {ci, ii, field} = e.target.dataset;
+        const card = _memo.cards[+ci];
+        if (card.type === 'free') card.text = e.target.value;
+        else if (card.type === 'checklist') card.items[+ii].text = e.target.value;
+        else if (card.type === 'info') card.items[+ii][field] = e.target.value;
+        scheduleSave();
+      };
+    });
+    wrap.querySelectorAll('.mc-chk').forEach(chk => {
+      chk.onchange = e => {
+        const {ci, ii} = e.target.dataset;
+        _memo.cards[+ci].items[+ii].done = e.target.checked;
+        const item = e.target.closest('.check-item');
+        if (item) item.classList.toggle('done', e.target.checked);
+        scheduleSave();
+      };
+    });
+    wrap.querySelectorAll('.mc-img-input').forEach(inp => {
+      inp.onchange = e => {
+        const ci = +inp.dataset.ci;
+        Array.from(e.target.files).forEach(file => {
+          const reader = new FileReader();
+          reader.onload = ev => {
+            _memo.cards[ci].images = _memo.cards[ci].images || [];
+            _memo.cards[ci].images.push({name: file.name, dataUrl: ev.target.result});
+            renderCards(); scheduleSave();
+          };
+          reader.readAsDataURL(file);
+        });
+        e.target.value = '';
+      };
     });
   }
 
-  function removeImg(idx) {
-    _memo.images.splice(idx, 1);
-    const row = Utils.el('img-thumb-row');
-    if (row) row.innerHTML = renderImgThumbs();
+  function addCard(type) {
+    const typeLabel = {checklist:'체크리스트',free:'자유 메모',info:'정보',image:'이미지'}[type];
+    const card = {type, title: typeLabel};
+    if (type === 'checklist') card.items = [];
+    if (type === 'info') card.items = [];
+    if (type === 'image') card.images = [];
+    if (type === 'free') card.text = '';
+    _memo.cards.push(card);
+    renderCards(); scheduleSave();
   }
 
-  // ── 저장 ────────────────────────────────────────────
-  async function save() {
-    // 편집 중인 KV 데이터 수집
-    ['payments', 'benefits'].forEach(field => {
-      const editEl = Utils.el(field + '-edit');
-      if (editEl && editEl.style.display !== 'none') collectKvData(field);
-    });
-    _memo.freeText = Utils.el('free-text')?.value || _memo.freeText || '';
+  function scheduleSave() {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(doSave, DEBOUNCE);
+  }
 
-    const btn = Utils.el('top-save-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+  async function doSave() {
     try {
-      await API.saveMemo(APP_STATE.currentMonth, _memo);
-      APP_STATE.memo = JSON.parse(JSON.stringify(_memo));
-      showToast('메모 저장됨');
-    } catch (e) {
-      showToast('저장 실패: ' + e.message);
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '저장'; }
-    }
+      // 이미지 제외하고 GAS 저장
+      const toSave = JSON.parse(JSON.stringify(_memo));
+      if (toSave.cards) toSave.cards.forEach(card => {
+        if (card.images) card.images = card.images.map(img => ({name: img.name}));
+      });
+      await API.saveMemo(GLOBAL_KEY, toSave);
+    } catch {}
+    // 이미지 포함해서 localStorage 저장
+    try { localStorage.setItem('ledger_global_memo', JSON.stringify(_memo)); } catch {}
+  }
+
+  function openLightbox(src) {
+    if (!src) return;
+    const lb = document.createElement('div');
+    lb.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:300;display:flex;align-items:center;justify-content:center;cursor:zoom-out';
+    lb.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;border-radius:6px;object-fit:contain" />`;
+    lb.onclick = () => document.body.removeChild(lb);
+    document.body.appendChild(lb);
+  }
+
+  function delImg(ci, ii) {
+    _memo.cards[ci].images.splice(ii, 1);
+    renderCards(); scheduleSave();
+  }
+
+  async function save() {
+    await doSave();
+    showToast('저장됨');
   }
 
   function esc(s) {
-    return String(s || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  return { init, save, addKvRow, removeKvRow, addCheck, removeCheck, toggleCheck, updateCheck, removeImg };
+  return { init, save, openLightbox, delImg };
 })();
