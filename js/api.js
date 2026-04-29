@@ -31,7 +31,11 @@ const API = (() => {
 
   function clearCacheForMonth(month) {
     Object.keys(localStorage)
-      .filter(k => k.startsWith(CACHE_PREFIX) && (!month || k.includes(month)))
+      .filter(k => {
+        if (!k.startsWith(CACHE_PREFIX)) return false;
+        if (!month) return true; // 월 없으면 전체 캐시 삭제
+        return k.includes(month);
+      })
       .forEach(k => localStorage.removeItem(k));
   }
 
@@ -97,9 +101,14 @@ const API = (() => {
     getTransactions:  (month)        => call('getTransactions', { month }, true),
     saveTransactions: (month, rows)  => write('saveTransactions', { month, rows }),
     getMemo:          (month)        => call('getMemo', { month }, true),
-    saveMemo:         (month, memo)  => write('saveMemo', { month, memo }),
+    saveMemo:         (month, memo)  => {
+      // 이미지 dataUrl 제외하고 저장 (용량 과다 방지)
+      const m = JSON.parse(JSON.stringify(memo));
+      if (m.cards) m.cards.forEach(card => { if (card.images) card.images = card.images.map(img => ({ name: img.name })); });
+      return write('saveMemo', { month, memo: m });
+    },
     getSettings:      ()             => call('getSettings', {}, true),
-    saveSettings:     (settings)     => write('saveSettings', { settings }),
+    saveSettings:     (settings)     => write('saveSettings', { settings }).then(r => { clearCacheForMonth(''); return r; }),
     getSummary:       (month)        => call('getSummary', { month }, true),
     clearCacheForMonth,
   };
