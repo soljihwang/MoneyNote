@@ -14,7 +14,11 @@ const SplitPage = (() => {
   let _filters = { card: '', category: '', status: '', dateFrom: '', dateTo: '' };
   let _memo = null;
   let _contextMenuIdx = null;
-  const DEBOUNCE = 800;
+  let _saveInProgress = false;
+  let _savePending = false;
+  let _lastSavePromise = Promise.resolve();
+  let _flushEventsBound = false;
+  const DEBOUNCE = 250;
 
   async function init() {
     const content = Utils.el('content');
@@ -36,6 +40,7 @@ const SplitPage = (() => {
     renderMemoArea();
     bindContextMenu();
     bindLightbox();
+    bindFlushEvents();
   }
 
   function renderShell() {
@@ -416,7 +421,7 @@ const SplitPage = (() => {
       }
     }
 
-    scheduleSave();
+    scheduleSave(true);
   }
 
   function onClick(e) {
@@ -428,7 +433,7 @@ const SplitPage = (() => {
     _rows.splice(idx, 1);
     if (!_rows.length) _rows.push(emptyRow());
     renderTable();
-    scheduleSave();
+    scheduleSave(true);
   }
 
   function onKeydown(e) {
@@ -498,7 +503,7 @@ const SplitPage = (() => {
 
     _rows.push(row);
     renderTable();
-    scheduleSave();
+    scheduleSave(true);
 
     setTimeout(() => {
       const newNr = Utils.el('sp-new-row');
@@ -572,10 +577,45 @@ const SplitPage = (() => {
     if (d) { d.checked = _rows[idx].disc; d.disabled = !isMg; }
   }
 
-  function scheduleSave() {
-    setSaveStatus('...');
+  function scheduleSave(immediate = false) {
+    setSaveStatus('저장 대기 중...');
     clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(doSave, DEBOUNCE);
+
+    if (immediate) {
+      _lastSavePromise = doSaveQueued();
+      return _lastSavePromise;
+    }
+
+    _saveTimer = setTimeout(() => {
+      _lastSavePromise = doSaveQueued();
+    }, DEBOUNCE);
+
+    return _lastSavePromise;
+  }
+
+  async function doSaveQueued() {
+    clearTimeout(_saveTimer);
+
+    if (_saveInProgress) {
+      _savePending = true;
+      setSaveStatus('저장 중...');
+      return _lastSavePromise;
+    }
+
+    _saveInProgress = true;
+    setSaveStatus('저장 중...');
+
+    try {
+      await doSave();
+    } finally {
+      _saveInProgress = false;
+
+      if (_savePending) {
+        _savePending = false;
+        _lastSavePromise = doSaveQueued();
+        return _lastSavePromise;
+      }
+    }
   }
 
   async function doSave() {
@@ -584,18 +624,45 @@ const SplitPage = (() => {
       await API.saveTransactions(APP_STATE.currentMonth, validRows);
       APP_STATE.transactions = validRows.map(r => ({ ...r }));
       setSaveStatus('저장됨');
-      setTimeout(() => setSaveStatus(''), 1500);
+      setTimeout(() => setSaveStatus(''), 1200);
       renderDash();
     } catch (err) {
       console.error('[SplitPage.doSave]', err);
-      setSaveStatus('오류 — 재시도 중');
-      setTimeout(doSave, 3000);
+      setSaveStatus('저장 실패');
+      showToast('저장 실패: ' + err.message, 3500);
     }
   }
 
   function setSaveStatus(msg) {
     const el = Utils.el('sp-save-status');
     if (el) el.textContent = msg;
+  }
+
+  function bindFlushEvents() {
+    if (_flushEventsBound) return;
+    _flushEventsBound = true;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        flushSave();
+      }
+    });
+
+    window.addEventListener('beforeunload', () => {
+      flushSave();
+    });
+
+    document.addEventListener('click', e => {
+      const navTarget = e.target.closest('[data-page], [data-route], .nav-item, .tab-btn, .gnb-item, .menu-item');
+      if (!navTarget) return;
+      flushSave();
+    }, true);
+  }
+
+  function flushSave() {
+    clearTimeout(_saveTimer);
+    _lastSavePromise = doSaveQueued();
+    return _lastSavePromise;
   }
 
   function renderMemoArea() {
@@ -833,7 +900,7 @@ const SplitPage = (() => {
     _rows[idx].memo = '';
     renderTable();
     renderItemMemoSection();
-    scheduleSave();
+    scheduleSave(true);
   }
 
   function scheduleMemoSave() {
@@ -971,5 +1038,6 @@ const SplitPage = (() => {
     openLightbox,
     openLightboxByIndex,
     deleteItemMemo,
+    flushSave,
   };
 })();
