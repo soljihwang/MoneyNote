@@ -138,7 +138,7 @@ const SettingsPage = (() => {
   }
 
   function addCard() {
-    const newCard = { name: '', perf: 0, disc: 0, perfDefault: true, discDefault: false, inactive: false };
+    const newCard = { name: '', perf: 0, disc: 0, perfDefault: true, discDefault: false, owner: 'me', inactive: false };
     _settings.cards.push(newCard);
     const tbody = Utils.el('card-tbody');
     const i = _settings.cards.length - 1;
