@@ -55,6 +55,14 @@ const SplitPage = (() => {
       </div>`;
 
     new ResizeObserver(() => adjustLayout()).observe(Utils.el('content'));
+
+    // 이벤트 위임 — sp-table-wrap에 한번만 바인딩
+    const twrap = Utils.el('sp-table-wrap');
+    twrap.addEventListener('input',       onInput);
+    twrap.addEventListener('change',      onChange);
+    twrap.addEventListener('click',       onClick);
+    twrap.addEventListener('keydown',     onKeydown);
+    twrap.addEventListener('contextmenu', onContextMenu);
   }
 
   function adjustLayout() {
@@ -90,8 +98,9 @@ const SplitPage = (() => {
     const topCats = Object.entries(catMap).filter(([k]) => k !== '-').sort((a,b) => b[1]-a[1]);
 
     const validCards = settings.cards.filter(c => c && typeof c === 'object' && c.name && !c.inactive);
-    const myCards     = validCards.filter(c => !String(c.name).includes('재욱'));
-    const spouseCards = validCards.filter(c =>  String(c.name).includes('재욱'));
+    // owner 필드 기반 분리, 없으면 이름 기반 fallback
+    const myCards     = validCards.filter(c => (c.owner||'me') === 'me' || (c.owner||'me') === 'common');
+    const spouseCards = validCards.filter(c => c.owner === 'spouse');
 
     function cardTableHtml(cards, label) {
       if (!cards.length) return '';
@@ -271,12 +280,6 @@ const SplitPage = (() => {
           ${newRowHtml(cards, cats)}
         </tbody>
       </table>`;
-
-    Utils.el('sp-tbody').addEventListener('input',        onInput);
-    Utils.el('sp-tbody').addEventListener('change',       onChange);
-    Utils.el('sp-tbody').addEventListener('click',        onClick);
-    Utils.el('sp-tbody').addEventListener('keydown',      onKeydown);
-    Utils.el('sp-tbody').addEventListener('contextmenu',  onContextMenu);
 
     // 스크롤 위치 복원
     if (wrap) {

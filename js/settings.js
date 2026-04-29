@@ -23,6 +23,7 @@ const SettingsPage = (() => {
               <th style="width:110px">카드명</th>
               <th>실적 허들</th><th>할인 한도</th>
               <th>기본 실적</th><th>기본 할인</th>
+              <th style="width:60px">구분</th>
               <th style="width:40px;text-align:center">비활성</th>
               <th style="width:28px"></th>
             </tr></thead>
@@ -75,6 +76,11 @@ const SettingsPage = (() => {
         <option value="true"${c.discDefault?' selected':''}>포함</option>
         <option value="false"${!c.discDefault?' selected':''}>미포함</option>
       </select></td>
+      <td><select data-ci="${i}" data-key="owner" style="width:100%;height:26px;font-size:11px;padding:0 4px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
+        <option value="me"${(c.owner||'me')==='me'?' selected':''}>내 카드</option>
+        <option value="spouse"${c.owner==='spouse'?' selected':''}>남편 카드</option>
+        <option value="common"${c.owner==='common'?' selected':''}>공통</option>
+      </select></td>
       <td style="text-align:center"><input type="checkbox" data-ci="${i}" data-key="inactive" ${inactive} style="accent-color:var(--blue)" /></td>
       <td><button class="btn-icon" onclick="SettingsPage.removeCard(${i})">-</button></td>
     </tr>`;
@@ -103,6 +109,7 @@ const SettingsPage = (() => {
       const { ci, key } = e.target.dataset;
       if (ci === undefined || !key || !_settings.cards[+ci]) return;
       if (e.target.type === 'checkbox') _settings.cards[+ci][key] = e.target.checked;
+      else if (key === 'owner') _settings.cards[+ci][key] = e.target.value;
       else _settings.cards[+ci][key] = e.target.value === 'true';
       if (key === 'inactive') {
         const tr = e.target.closest('tr');
