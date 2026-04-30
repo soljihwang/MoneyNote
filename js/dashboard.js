@@ -13,11 +13,12 @@ const DashboardPage = (() => {
   }
 
   function calcSummary(rows, settings) {
+    const activeCards = (settings.cards || []).filter(c => c && c.name && !c.inactive);
     const total = rows.reduce((s, r) => s + Utils.parseNum(r.amount), 0);
 
     // 카드별 실적/할인 집계
     const cardMap = {};
-    settings.cards.forEach(c => {
+    activeCards.forEach(c => {
       cardMap[c.name] = { perf: 0, disc: 0, total: 0 };
     });
     rows.forEach(r => {
@@ -30,7 +31,7 @@ const DashboardPage = (() => {
 
     // mg+s 나/재욱 통합 (기본 + 할인 카드 합산)
     const mgPersons = {};
-    settings.cards.forEach(c => {
+    activeCards.forEach(c => {
       if (!Utils.isMgCard(c.name)) return;
       const isDisc = c.name.includes('할인');
       const who = c.name.includes('재욱') ? '재욱' : '나';
@@ -65,7 +66,7 @@ const DashboardPage = (() => {
     const totalColor = totalPct >= 1 ? 'pbar-red' : totalPct >= 0.8 ? 'pbar-amber' : 'pbar-green';
 
     // 카드별 실적 (mg+s 제외 나머지)
-    const otherCards = settings.cards.filter(c => !Utils.isMgCard(c.name) && c.perf > 0);
+    const otherCards = (settings.cards || []).filter(c => c && !c.inactive && !Utils.isMgCard(c.name) && c.perf > 0);
 
     const content = Utils.el('content');
     content.innerHTML = `
@@ -106,7 +107,7 @@ const DashboardPage = (() => {
 
         <div class="sec-title">구분별 지출</div>
         <div class="card">
-          ${renderCatBars(s.catMap, settings.categories)}
+          ${renderCatBars(s.catMap, (settings.categories || []).filter(c => c && !c.inactive))}
         </div>
 
       </div>`;

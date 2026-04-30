@@ -665,6 +665,10 @@ const SplitPage = (() => {
     return _lastSavePromise;
   }
 
+  function save() {
+    return flushSave();
+  }
+
   function renderMemoArea() {
     const wrap = Utils.el('sp-memo-wrap');
     if (!wrap) return;
@@ -1038,6 +1042,7 @@ const SplitPage = (() => {
     openLightbox,
     openLightboxByIndex,
     deleteItemMemo,
+    save,
     flushSave,
   };
 })();

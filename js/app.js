@@ -73,7 +73,7 @@ const PAGES = {
   dash:     { title: '대시보드', search: false, save: false, init: () => DashboardPage.init() },
   input:    { title: '입력',     search: true,  save: true,  init: () => InputPage.init() },
   ledger:   { title: '내역',     search: true,  save: false, init: () => LedgerPage.init() },
-  split:    { title: '가계부',   search: false, save: false, init: () => SplitPage.init() },
+  split:    { title: '가계부',   search: false, save: true, init: () => SplitPage.init() },
   memo:     { title: '메모',     search: false, save: true,  init: () => MemoPage.init() },
   compare:  { title: '카드 대조', search: false, save: false, init: () => ComparePage.init() },
   settings: { title: '설정',     search: false, save: true,  init: () => SettingsPage.init() },
@@ -115,7 +115,7 @@ function navigateTo(pageId) {
   // 저장 버튼 핸들러 교체
   saveBtn.onclick = null;
   if (pageId === 'input')    saveBtn.onclick = () => InputPage.save();
-  if (pageId === 'split')    saveBtn.onclick = () => InputPage.save();
+  if (pageId === 'split')    saveBtn.onclick = () => SplitPage.save();
   if (pageId === 'memo')     saveBtn.onclick = () => MemoPage.save();
   if (pageId === 'settings') saveBtn.onclick = () => SettingsPage.save();
 
