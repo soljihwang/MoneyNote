@@ -1,21 +1,20 @@
 /**
- * api.js — GAS 통신 레이어
+ * api.js — Supabase API layer
  *
- * 중요:
- * - 모든 요청은 GET으로 처리합니다.
- * - 거래내역 저장은 안전 저장 플로우를 사용합니다.
- *   beginTransactionsSave → appendTransactionsDraft 여러 번 → commitTransactionsSave
- * - 메모 이미지는 GAS URL 길이 제한 때문에 dataUrl은 서버로 보내지 않고,
- *   split.js에서 브라우저 localStorage에 보관합니다.
+ * 1차 이전 범위:
+ * - 월 목록 / 월 생성
+ * - 거래내역 조회 / 저장
+ * - 월별 설정 조회 / 저장
+ * - 텍스트 메모 조회 / 저장
+ *
+ * 이미지 저장은 2차 작업으로 보류합니다.
  */
 
 const API = (() => {
-  const GAS_URL = 'https://script.google.com/macros/s/AKfycbzRyS2tuBtUaTbhtu3-VtYzQiXCL8LlPuzEW_QxvwavVC-njEKlaYNTRnSqm1h4nRO3/exec';
+  const sb = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
 
   const CACHE_PREFIX = 'ledger_';
   const CACHE_TTL = 5 * 60 * 1000;
-
-  const TX_CHUNK_SIZE = 3;
 
   function cacheKey(action, month) {
     return CACHE_PREFIX + action + '_' + (month || 'global');
@@ -56,114 +55,37 @@ const API = (() => {
     } catch {}
   }
 
-  function buildUrl(action, params = {}) {
-    const url = new URL(GAS_URL);
-    url.searchParams.set('action', action);
-
-    Object.entries(params).forEach(([k, v]) => {
-      url.searchParams.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-    });
-
-    url.searchParams.set('_t', String(Date.now()));
-    return url;
+  function check(res) {
+    if (res && res.error) {
+      throw new Error(res.error.message || 'Supabase API error');
+    }
   }
 
-  async function call(action, params = {}, useCache = false) {
-    const month = params.month || (APP_STATE && APP_STATE.currentMonth) || '';
-    const ck = cacheKey(action, month);
-
-    if (useCache) {
-      const cached = getCache(ck);
-      if (cached !== null) return cached;
-    }
-
-    const url = buildUrl(action, params);
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      cache: 'no-store',
-    });
-
-    if (!res.ok) {
-      throw new Error('API 오류: ' + res.status);
-    }
-
-    const json = await res.json();
-
-    if (json.error) {
-      throw new Error(json.error);
-    }
-
-    if (useCache) {
-      setCache(ck, json.data);
-    }
-
-    return json.data;
+  function currentYearMonth() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   }
 
-  async function write(action, body) {
-    body = body || {};
-    const month = body.month || (APP_STATE && APP_STATE.currentMonth) || '';
-
-    if (action === 'saveTransactions' && Array.isArray(body.rows)) {
-      return saveTransactionsSafely(body.month, body.rows);
+  async function settingsMonth() {
+    if (typeof APP_STATE !== 'undefined' && APP_STATE.currentMonth) {
+      return APP_STATE.currentMonth;
     }
 
-    return writeOnce(action, body, month);
+    const months = await getMonths();
+    const thisMonth = currentYearMonth();
+
+    return months.includes(thisMonth) ? thisMonth : months[0] || thisMonth;
   }
 
-  async function writeOnce(action, body, month) {
-    const url = buildUrl(action, {
-      payload: body,
-    });
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      cache: 'no-store',
-    });
-
-    if (!res.ok) {
-      throw new Error('API 오류: ' + res.status);
-    }
-
-    const json = await res.json();
-
-    if (json.error) {
-      throw new Error(json.error);
-    }
-
-    clearCacheForMonth(month);
-    return json.data;
-  }
-
-  async function saveTransactionsSafely(month, rows) {
-    const safeRows = Array.isArray(rows) ? rows : [];
-    const token = makeSaveToken();
-
-    await writeOnce('beginTransactionsSave', { month, token }, month);
-
-    for (let i = 0; i < safeRows.length; i += TX_CHUNK_SIZE) {
-      const chunk = safeRows.slice(i, i + TX_CHUNK_SIZE);
-
-      await writeOnce('appendTransactionsDraft', {
-        month,
-        token,
-        rows: chunk,
-      }, month);
-    }
-
-    const result = await writeOnce('commitTransactionsSave', {
-      month,
-      token,
-      expectedCount: safeRows.length,
-    }, month);
-
-    clearCacheForMonth(month);
-    return result;
-  }
-
-  function makeSaveToken() {
-    return String(Date.now()) + '_' + Math.random().toString(36).slice(2, 10);
+  function defaultMemo() {
+    return {
+      payments: [],
+      checklist: [],
+      benefits: [],
+      freeText: '',
+      images: [],
+      cards: [],
+    };
   }
 
   function sanitizeMemo(memo) {
@@ -201,6 +123,8 @@ const API = (() => {
         owner: card.owner || 'me',
         inactive: card.inactive === true,
       }));
+    } else {
+      s.cards = [];
     }
 
     if (Array.isArray(s.categories)) {
@@ -209,6 +133,8 @@ const API = (() => {
         budget: Number(cat.budget || 0),
         inactive: cat.inactive === true,
       }));
+    } else {
+      s.categories = [];
     }
 
     s.totalBudget = Number(s.totalBudget || 0);
@@ -217,34 +143,349 @@ const API = (() => {
     return s;
   }
 
-  return {
-    getMonths: () => call('getMonths', {}, true),
+  function fallbackSettings() {
+    if (typeof defaultSettings === 'function') {
+      return normalizeSettings(defaultSettings());
+    }
 
-    createMonth: month => write('createMonth', { month }),
+    return normalizeSettings({});
+  }
 
-    getTransactions: month => call('getTransactions', { month }, true),
+  function cardFromDb(row) {
+    return {
+      name: row.name || '',
+      perf: Number(row.perf || 0),
+      disc: Number(row.disc || 0),
+      perfDefault: row.perf_default !== false,
+      discDefault: row.disc_default === true,
+      owner: row.owner || 'me',
+      inactive: row.inactive === true,
+    };
+  }
 
-    saveTransactions: (month, rows) => write('saveTransactions', { month, rows }),
-
-    getMemo: month => call('getMemo', { month }, true),
-
-    saveMemo: (month, memo) => write('saveMemo', {
+  function cardToDb(month, card, sortOrder) {
+    return {
       month,
-      memo: sanitizeMemo(memo),
-    }),
+      name: card.name || '',
+      perf: Number(card.perf || 0),
+      disc: Number(card.disc || 0),
+      perf_default: card.perfDefault !== false,
+      disc_default: card.discDefault === true,
+      owner: card.owner || 'me',
+      inactive: card.inactive === true,
+      sort_order: sortOrder,
+    };
+  }
 
-    getSettings: () => call('getSettings', {}, true),
+  function categoryFromDb(row) {
+    return {
+      name: row.name || '',
+      budget: Number(row.budget || 0),
+      inactive: row.inactive === true,
+    };
+  }
 
-    saveSettings: settings => {
-      const normalized = normalizeSettings(settings);
-      return write('saveSettings', { settings: normalized }).then(r => {
-        clearCacheForMonth('');
-        return r;
-      });
-    },
+  function categoryToDb(month, cat, sortOrder) {
+    return {
+      month,
+      name: cat.name || '',
+      budget: Number(cat.budget || 0),
+      inactive: cat.inactive === true,
+      sort_order: sortOrder,
+    };
+  }
 
-    getSummary: month => call('getSummary', { month }, true),
+  async function getMonths() {
+    const ck = cacheKey('getMonths', 'global');
+    const cached = getCache(ck);
+    if (cached !== null) return cached;
 
+    const res = await sb
+      .from('months')
+      .select('month')
+      .order('month', { ascending: false });
+
+    check(res);
+
+    let months = (res.data || []).map(r => r.month).filter(Boolean);
+
+    if (!months.length) {
+      const month = currentYearMonth();
+      await createMonth(month);
+      months = [month];
+    }
+
+    setCache(ck, months);
+    return months;
+  }
+
+  async function createMonth(month) {
+    const prevMonth = typeof APP_STATE !== 'undefined' && APP_STATE.currentMonth
+      ? APP_STATE.currentMonth
+      : null;
+
+    check(await sb
+      .from('months')
+      .upsert({ month }, { onConflict: 'month' }));
+
+    if (prevMonth && prevMonth !== month) {
+      const prevSettings = await getSettings(prevMonth);
+      await saveSettingsForMonth(month, prevSettings);
+
+      const prevMemo = await getMemo(prevMonth);
+      await saveMemo(month, prevMemo);
+    } else {
+      await saveSettingsForMonth(month, fallbackSettings());
+      await saveMemo(month, defaultMemo());
+    }
+
+    clearCacheForMonth('');
+    return { ok: true, month };
+  }
+
+  async function getTransactions(month) {
+    const ck = cacheKey('getTransactions', month);
+    const cached = getCache(ck);
+    if (cached !== null) return cached;
+
+    const res = await sb
+      .from('transactions')
+      .select('date,item,amount,shop,card,category,perf,disc,status,memo,sort_order')
+      .eq('month', month)
+      .order('sort_order', { ascending: true });
+
+    check(res);
+
+    const rows = (res.data || []).map(r => ({
+      date: r.date || '',
+      item: r.item || '',
+      amount: Number(r.amount || 0),
+      shop: r.shop || '',
+      card: r.card || '',
+      category: r.category || '',
+      perf: r.perf === true,
+      disc: r.disc === true,
+      status: r.status || '',
+      memo: r.memo || '',
+    }));
+
+    setCache(ck, rows);
+    return rows;
+  }
+
+  async function saveTransactions(month, rows) {
+    const safeRows = Array.isArray(rows) ? rows : [];
+
+    check(await sb
+      .from('transactions')
+      .delete()
+      .eq('month', month));
+
+    if (safeRows.length) {
+      const payload = safeRows.map((r, i) => ({
+        month,
+        sort_order: i,
+        date: r.date || null,
+        item: r.item || '',
+        amount: Number(r.amount || 0),
+        shop: r.shop || '',
+        card: r.card || '',
+        category: r.category || '',
+        perf: r.perf === true,
+        disc: r.disc === true,
+        status: r.status || '',
+        memo: r.memo || '',
+      }));
+
+      check(await sb
+        .from('transactions')
+        .insert(payload));
+    }
+
+    check(await sb
+      .from('months')
+      .upsert({ month }, { onConflict: 'month' }));
+
+    clearCacheForMonth(month);
+    return { ok: true, count: safeRows.length };
+  }
+
+  async function getMemo(month) {
+    const ck = cacheKey('getMemo', month);
+    const cached = getCache(ck);
+    if (cached !== null) return cached;
+
+    const res = await sb
+      .from('memos')
+      .select('memo')
+      .eq('month', month)
+      .maybeSingle();
+
+    check(res);
+
+    const memo = res.data && res.data.memo ? res.data.memo : defaultMemo();
+
+    setCache(ck, memo);
+    return memo;
+  }
+
+  async function saveMemo(month, memo) {
+    const safeMemo = sanitizeMemo(memo);
+
+    check(await sb
+      .from('memos')
+      .upsert({ month, memo: safeMemo }, { onConflict: 'month' }));
+
+    clearCacheForMonth(month);
+    return { ok: true };
+  }
+
+  async function getSettings(monthArg) {
+    const month = monthArg || await settingsMonth();
+    const ck = cacheKey('getSettings', month);
+    const cached = getCache(ck);
+    if (cached !== null) return cached;
+
+    const [monthRes, cardRes, catRes] = await Promise.all([
+      sb
+        .from('month_settings')
+        .select('total_budget,toggles')
+        .eq('month', month)
+        .maybeSingle(),
+      sb
+        .from('card_month_settings')
+        .select('name,perf,disc,perf_default,disc_default,owner,inactive,sort_order')
+        .eq('month', month)
+        .order('sort_order', { ascending: true }),
+      sb
+        .from('category_month_settings')
+        .select('name,budget,inactive,sort_order')
+        .eq('month', month)
+        .order('sort_order', { ascending: true }),
+    ]);
+
+    check(monthRes);
+    check(cardRes);
+    check(catRes);
+
+    const hasMonthSettings = !!monthRes.data;
+    const hasCards = Array.isArray(cardRes.data) && cardRes.data.length > 0;
+    const hasCategories = Array.isArray(catRes.data) && catRes.data.length > 0;
+
+    const settings = !hasMonthSettings && !hasCards && !hasCategories
+      ? fallbackSettings()
+      : {
+          totalBudget: Number(monthRes.data?.total_budget || 0),
+          toggles: monthRes.data?.toggles || {},
+          cards: (cardRes.data || []).map(cardFromDb),
+          categories: (catRes.data || []).map(categoryFromDb),
+        };
+
+    setCache(ck, settings);
+    return settings;
+  }
+
+  async function saveSettingsForMonth(month, settings) {
+    const normalized = normalizeSettings(settings);
+    const cards = normalized.cards.filter(card => card.name);
+    const categories = normalized.categories.filter(cat => cat.name);
+
+    check(await sb
+      .from('month_settings')
+      .upsert({
+        month,
+        total_budget: normalized.totalBudget,
+        toggles: normalized.toggles,
+      }, { onConflict: 'month' }));
+
+    check(await sb
+      .from('card_month_settings')
+      .delete()
+      .eq('month', month));
+
+    check(await sb
+      .from('category_month_settings')
+      .delete()
+      .eq('month', month));
+
+    if (cards.length) {
+      check(await sb
+        .from('card_month_settings')
+        .insert(cards.map((card, i) => cardToDb(month, card, i))));
+    }
+
+    if (categories.length) {
+      check(await sb
+        .from('category_month_settings')
+        .insert(categories.map((cat, i) => categoryToDb(month, cat, i))));
+    }
+
+    clearCacheForMonth(month);
+    return { ok: true };
+  }
+
+  async function saveSettings(settings) {
+    const month = await settingsMonth();
+    const result = await saveSettingsForMonth(month, settings);
+
+    clearCacheForMonth('');
+    return result;
+  }
+
+  async function getSummary(month) {
+    const [rows, settings] = await Promise.all([
+      getTransactions(month),
+      getSettings(month),
+    ]);
+
+    const cardMap = {};
+    const catMap = {};
+    let total = 0;
+
+    rows.forEach(r => {
+      const amount = Number(r.amount || 0);
+      total += amount;
+
+      if (!cardMap[r.card]) {
+        cardMap[r.card] = {
+          perf: 0,
+          disc: 0,
+          total: 0,
+        };
+      }
+
+      cardMap[r.card].total += amount;
+
+      if (r.perf) {
+        cardMap[r.card].perf += amount;
+      }
+
+      if (r.disc) {
+        cardMap[r.card].disc += amount;
+      }
+
+      const cat = r.category || '-';
+      catMap[cat] = (catMap[cat] || 0) + amount;
+    });
+
+    return {
+      total,
+      cardMap,
+      catMap,
+      cards: settings.cards || [],
+    };
+  }
+
+  return {
+    getMonths,
+    createMonth,
+    getTransactions,
+    saveTransactions,
+    getMemo,
+    saveMemo,
+    getSettings,
+    saveSettings,
+    getSummary,
     clearCacheForMonth,
   };
 })();
