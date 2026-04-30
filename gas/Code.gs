@@ -6,6 +6,7 @@
  * - 거래내역 저장은 임시 시트에 먼저 저장한 뒤, 최종 커밋 시 월 시트를 교체합니다.
  * - 기존 월 시트는 바로 삭제하지 않고 월별 백업 시트로 1개만 보관합니다.
  * - _TMP_TX_ 시트는 정상 저장 후 월 시트로 이름이 바뀌므로 남지 않는 것이 정상입니다.
+ * - 실패한 _TMP_TX_ 시트는 1시간 이상 지난 것만 자동 정리합니다.
  * - _BACKUP_TX_YYYYMM 시트는 월별 1개만 유지됩니다.
  */
 
@@ -100,16 +101,22 @@ function jsonResponse(obj) {
 
 function getSpreadsheet() {
   var sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
+
   if (!sheetId) {
     throw new Error('스크립트 속성 SHEET_ID가 설정되지 않았습니다.');
   }
+
   return SpreadsheetApp.openById(sheetId);
 }
 
 function getOrCreateSheet(name, ss) {
   var s = ss || getSpreadsheet();
   var sheet = s.getSheetByName(name);
-  if (!sheet) sheet = s.insertSheet(name);
+
+  if (!sheet) {
+    sheet = s.insertSheet(name);
+  }
+
   return sheet;
 }
 
@@ -168,6 +175,7 @@ function createMonth(month) {
 
   if (prevMemoSheet && newMemoSheet.getLastRow() === 0) {
     var prevData = prevMemoSheet.getDataRange().getValues();
+
     if (prevData.length) {
       newMemoSheet.getRange(1, 1, prevData.length, prevData[0].length).setValues(prevData);
     }
@@ -202,12 +210,14 @@ function getTransactions(month) {
 
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName(month);
+
   if (!sheet || sheet.getLastRow() < 2) return [];
 
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, TX_HEADERS.length).getValues();
 
   return data.map(function(row) {
     var obj = {};
+
     TX_HEADERS.forEach(function(h, i) {
       obj[h] = row[i];
     });
@@ -231,8 +241,10 @@ function saveTransactions(month, rows) {
   if (!month || !rows) throw new Error('파라미터 없음');
 
   var token = 'legacy_' + Date.now();
+
   beginTransactionsSave(month, token);
   appendTransactionsDraft(month, token, rows);
+
   return commitTransactionsSave(month, token, rows.length);
 }
 
@@ -263,7 +275,10 @@ function beginTransactionsSave(month, token) {
     var tempSheet = ss.insertSheet(tempName);
     ensureTransactionHeader(tempSheet);
 
-    return { ok: true, tempSheet: tempName };
+    return {
+      ok: true,
+      tempSheet: tempName
+    };
   } finally {
     lock.releaseLock();
   }
@@ -289,7 +304,10 @@ function appendTransactionsDraft(month, token, rows) {
     ensureTransactionHeader(sheet);
 
     if (!rows.length) {
-      return { ok: true, count: 0 };
+      return {
+        ok: true,
+        count: 0
+      };
     }
 
     var values = rows.map(rowToTransactionValues);
@@ -297,7 +315,10 @@ function appendTransactionsDraft(month, token, rows) {
 
     sheet.getRange(startRow, 1, values.length, TX_HEADERS.length).setValues(values);
 
-    return { ok: true, count: rows.length };
+    return {
+      ok: true,
+      count: rows.length
+    };
   } finally {
     lock.releaseLock();
   }
@@ -357,7 +378,11 @@ function commitTransactionsSave(month, token, expectedCount) {
       monthsSheet.appendRow([month]);
     }
 
-    cleanupTempTransactionSheets(month, token);
+    // 중요:
+    // 여기서 다른 _TMP_TX_ 시트를 삭제하면 안 됩니다.
+    // 동시에 진행 중인 다른 저장 요청의 임시 시트를 지우면
+    // "임시 저장 시트가 없습니다" 오류가 발생할 수 있습니다.
+    cleanupStaleTempTransactionSheets(month, 60 * 60 * 1000);
 
     return {
       ok: true,
@@ -381,14 +406,27 @@ function commitTransactionsSave(month, token, expectedCount) {
   }
 }
 
-function cleanupTempTransactionSheets(month, currentToken) {
+function cleanupStaleTempTransactionSheets(month, maxAgeMs) {
   var ss = getSpreadsheet();
   var safeMonth = safeSheetNamePart(normalizeMonthValue(month) || month);
-  var keepName = getTempTxSheetName(month, currentToken);
+  var prefix = '_TMP_TX_' + safeMonth + '_';
+  var now = Date.now();
 
   ss.getSheets().forEach(function(sheet) {
     var name = sheet.getName();
-    if (name.indexOf('_TMP_TX_' + safeMonth + '_') === 0 && name !== keepName) {
+
+    if (name.indexOf(prefix) !== 0) return;
+
+    var tokenPart = name.substring(prefix.length);
+    var tsMatch = tokenPart.match(/^(\d{10,})_/);
+
+    // token에서 생성 시간을 읽을 수 없는 TMP는 건드리지 않습니다.
+    if (!tsMatch) return;
+
+    var createdAt = Number(tsMatch[1]);
+
+    // 1시간 이상 지난 실패 TMP만 삭제합니다.
+    if (createdAt && now - createdAt > maxAgeMs) {
       ss.deleteSheet(sheet);
     }
   });
@@ -411,10 +449,15 @@ function rowToTransactionValues(r) {
 
   return TX_HEADERS.map(function(h) {
     if (h === 'date') return normalizeDateValue(r[h]);
-    if (h === 'amount') return r[h] !== undefined && r[h] !== '' ? Number(r[h]) : '';
+
+    if (h === 'amount') {
+      return r[h] !== undefined && r[h] !== '' ? Number(r[h]) : '';
+    }
+
     if (h === 'perf' || h === 'disc') {
       return r[h] === true || r[h] === 'TRUE' || r[h] === 'true' || r[h] === 1;
     }
+
     return r[h] !== undefined && r[h] !== null ? String(r[h]) : '';
   });
 }
@@ -430,7 +473,10 @@ function getMemo(month) {
 
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName(getMemoSheetName(month));
-  if (!sheet || sheet.getLastRow() === 0) return defaultMemo();
+
+  if (!sheet || sheet.getLastRow() === 0) {
+    return defaultMemo();
+  }
 
   var data = sheet.getDataRange().getValues();
   var memo = defaultMemo();
@@ -438,6 +484,7 @@ function getMemo(month) {
   data.forEach(function(row) {
     var key = row[0];
     var val = row[1];
+
     if (!key) return;
 
     try {
@@ -447,7 +494,9 @@ function getMemo(month) {
         memo[key] = JSON.parse(val || '[]');
       }
     } catch (e) {
-      if (key === 'freeText') memo.freeText = String(val || '');
+      if (key === 'freeText') {
+        memo.freeText = String(val || '');
+      }
     }
   });
 
@@ -484,7 +533,9 @@ function saveMemo(month, memo) {
     sheet.clearContents();
     sheet.getRange(1, 1, rows.length, 2).setValues(rows);
 
-    return { ok: true };
+    return {
+      ok: true
+    };
   } finally {
     lock.releaseLock();
   }
@@ -498,16 +549,21 @@ function sanitizeMemoForSheet(memo) {
     copied.cards = copied.cards.map(function(card) {
       if (card.images) {
         card.images = card.images.map(function(img) {
-          return { name: img.name || '' };
+          return {
+            name: img.name || ''
+          };
         });
       }
+
       return card;
     });
   }
 
   if (copied.images) {
     copied.images = copied.images.map(function(img) {
-      return { name: img.name || '' };
+      return {
+        name: img.name || ''
+      };
     });
   }
 
@@ -530,7 +586,10 @@ function defaultMemo() {
 function getSettings() {
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName('META');
-  if (!sheet || sheet.getLastRow() === 0) return null;
+
+  if (!sheet || sheet.getLastRow() === 0) {
+    return null;
+  }
 
   var data = sheet.getDataRange().getValues();
   var settings = {};
@@ -538,6 +597,7 @@ function getSettings() {
   data.forEach(function(row) {
     var key = row[0];
     var val = row[1];
+
     if (!key) return;
 
     try {
@@ -579,7 +639,9 @@ function saveSettings(settings) {
       sheet.getRange(1, 1, rows.length, 2).setValues(rows);
     }
 
-    return { ok: true };
+    return {
+      ok: true
+    };
   } finally {
     lock.releaseLock();
   }
@@ -633,12 +695,22 @@ function getSummary(month) {
     total += amt;
 
     if (!cardMap[r.card]) {
-      cardMap[r.card] = { perf: 0, disc: 0, total: 0 };
+      cardMap[r.card] = {
+        perf: 0,
+        disc: 0,
+        total: 0
+      };
     }
 
     cardMap[r.card].total += amt;
-    if (r.perf) cardMap[r.card].perf += amt;
-    if (r.disc) cardMap[r.card].disc += amt;
+
+    if (r.perf) {
+      cardMap[r.card].perf += amt;
+    }
+
+    if (r.disc) {
+      cardMap[r.card].disc += amt;
+    }
   });
 
   var catMap = {};
@@ -672,6 +744,7 @@ function normalizeMonthValue(value) {
 
   var s = String(value).trim();
   var match = s.match(/^(\d{4})[-/.](\d{1,2})/);
+
   if (match) {
     return match[1] + '-' + pad(Number(match[2]));
   }
