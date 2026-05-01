@@ -16,7 +16,9 @@ const APP_STATE = {
 const Utils = {
   fmt(n) {
     if (n == null || n === '') return '';
-    return Number(n).toLocaleString('ko-KR');
+    const num = Number(n);
+    if (!Number.isFinite(num)) return '';
+    return num.toLocaleString('ko-KR');
   },
   fmtWon(n) {
     return Utils.fmt(n);
@@ -24,6 +26,40 @@ const Utils = {
   parseNum(s) {
     if (s == null || s === '') return 0;
     return Number(String(s).replace(/,/g, '')) || 0;
+  },
+  fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  },
+  resizeImageFile(file, { maxSide = 1200, quality = 0.8, maxBytes = 3 * 1024 * 1024 } = {}) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        if (dataUrl.length > maxBytes) dataUrl = canvas.toDataURL('image/jpeg', 0.65);
+        if (dataUrl.length > maxBytes) dataUrl = canvas.toDataURL('image/jpeg', 0.55);
+        if (dataUrl.length > maxBytes) {
+          reject(new Error('이미지 용량이 너무 커서 저장할 수 없습니다. 더 작은 이미지를 선택해주세요.'));
+          return;
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = reject;
+      Utils.fileToDataUrl(file).then(src => { img.src = src; }).catch(reject);
+    });
   },
   monthLabel(ym) {
     const [y, m] = ym.split('-');
@@ -74,8 +110,8 @@ const PAGES = {
   input:    { title: '입력',     search: true,  save: true,  init: () => InputPage.init() },
   ledger:   { title: '내역',     search: true,  save: false, init: () => LedgerPage.init() },
   split:    { title: '가계부',   search: false, save: true, init: () => SplitPage.init() },
-  memo:     { title: '메모',     search: false, save: true,  init: () => MemoPage.init() },
-  compare:  { title: '카드 대조', search: false, save: false, init: () => ComparePage.init() },
+  memo:     { title: '메모',     search: false, save: false, month: false, init: () => MemoPage.init() },
+  compare:  { title: '카드대조', search: false, save: false, init: () => ComparePage.init() },
   settings: { title: '설정',     search: false, save: true,  init: () => SettingsPage.init() },
 };
 
@@ -99,7 +135,9 @@ function navigateTo(pageId) {
 
   // 타이틀 / 월 라벨
   Utils.el('page-title').textContent = PAGES[pageId].title;
-  Utils.el('tb-month').textContent = Utils.monthLabel(APP_STATE.currentMonth);
+  const tbMonth = Utils.el('tb-month');
+  tbMonth.textContent = Utils.monthLabel(APP_STATE.currentMonth);
+  tbMonth.style.display = PAGES[pageId].month === false ? 'none' : '';
 
   // 검색창 / 저장 버튼
   const tbRight = Utils.el('tb-right');
@@ -107,9 +145,12 @@ function navigateTo(pageId) {
   const saveBtn = Utils.el('top-save-btn');
   sw.style.display = PAGES[pageId].search ? '' : 'none';
   saveBtn.style.display = PAGES[pageId].save ? '' : 'none';
+  saveBtn.disabled = false;
+  saveBtn.textContent = '저장';
 
   // 콘텐츠 렌더링
   const content = Utils.el('content');
+  content.removeAttribute('style');
   content.innerHTML = '<div class="page-loading"><div class="loading-spinner"></div></div>';
 
   // 저장 버튼 핸들러 교체
@@ -201,7 +242,9 @@ async function initApp() {
     APP_STATE.currentMonth = e.target.value;
     APP_STATE.transactions = [];
     APP_STATE.memo = null;
-    Utils.el('tb-month').textContent = Utils.monthLabel(APP_STATE.currentMonth);
+    const tbMonth = Utils.el('tb-month');
+    tbMonth.textContent = Utils.monthLabel(APP_STATE.currentMonth);
+    tbMonth.style.display = PAGES[_currentPage]?.month === false ? 'none' : '';
     navigateTo(_currentPage);
   });
 
@@ -230,7 +273,9 @@ async function initApp() {
   }
 
   populateMonthSel(APP_STATE.months, APP_STATE.currentMonth);
-  Utils.el('tb-month').textContent = Utils.monthLabel(APP_STATE.currentMonth);
+  const tbMonth = Utils.el('tb-month');
+  tbMonth.textContent = Utils.monthLabel(APP_STATE.currentMonth);
+  tbMonth.style.display = '';
 
   navigateTo('split');
 }

@@ -16,6 +16,7 @@ const SplitPage = (() => {
   let _contextMenuIdx = null;
   let _saveInProgress = false;
   let _savePending = false;
+  let _dirty = false;
   let _lastSavePromise = Promise.resolve();
   let _flushEventsBound = false;
   const DEBOUNCE = 250;
@@ -29,6 +30,7 @@ const SplitPage = (() => {
     _rows = APP_STATE.transactions.length
       ? APP_STATE.transactions.map(r => ({ ...r }))
       : [emptyRow()];
+    _dirty = false;
 
     _memo = hydrateMemoImages(JSON.parse(JSON.stringify(APP_STATE.memo || defaultMemo())));
     if (!_memo.cards) _memo.cards = [];
@@ -45,11 +47,11 @@ const SplitPage = (() => {
 
   function renderShell() {
     Utils.el('content').innerHTML = `
-      <div id="sp-dash" style="flex-shrink:0;padding:8px 14px;border-bottom:0.5px solid var(--border);overflow-x:auto;max-height:180px;overflow-y:auto"></div>
+      <div id="sp-dash" style="flex-shrink:0;padding:10px 14px;border-bottom:0.5px solid var(--border);min-height:170px;max-height:240px;overflow:hidden"></div>
       <div id="sp-filter" style="flex-shrink:0;display:flex;gap:5px;align-items:center;padding:4px 14px;border-bottom:0.5px solid var(--border);flex-wrap:wrap"></div>
-      <div id="sp-body" style="display:grid;grid-template-columns:1fr 280px;flex:1;overflow:hidden;min-height:0">
-        <div style="display:flex;flex-direction:column;overflow:hidden;border-right:0.5px solid var(--border)">
-          <div style="overflow:auto;flex:1" id="sp-table-wrap"></div>
+      <div id="sp-body" style="display:grid;grid-template-columns:628px minmax(240px,1fr);flex:1;overflow:hidden;min-height:0">
+        <div style="display:flex;flex-direction:column;overflow:hidden;border-right:0.5px solid var(--border);width:628px;min-width:628px;max-width:628px">
+          <div style="overflow:auto;flex:1;width:628px;max-width:628px" id="sp-table-wrap"></div>
           <div style="padding:6px 14px;border-top:0.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
             <span style="font-size:10px;color:var(--text3)" id="sp-save-status"></span>
             <span style="font-size:10px;color:var(--text2)" id="sp-count"></span>
@@ -77,21 +79,19 @@ const SplitPage = (() => {
   function adjustLayout() {
     const body = Utils.el('sp-body');
     if (!body) return;
-    const w = body.offsetWidth;
-    const memoW = Math.max(240, Math.min(380, w - 480));
-    body.style.gridTemplateColumns = `1fr ${memoW}px`;
+    body.style.gridTemplateColumns = '628px minmax(240px,1fr)';
   }
 
   function renderDash() {
     const settings = APP_STATE.settings || defaultSettings();
     const rows = _rows.filter(r => r.item || r.amount);
-    const total = rows.reduce((s, r) => s + Utils.parseNum(r.amount), 0);
+    const total = rows.reduce((s, r) => s + safeAmount(r.amount), 0);
 
     const cardMap = {};
     rows.forEach(r => {
       if (!r.card) return;
       if (!cardMap[r.card]) cardMap[r.card] = { perf: 0, disc: 0, total: 0 };
-      const amt = Utils.parseNum(r.amount);
+      const amt = safeAmount(r.amount);
       cardMap[r.card].total += amt;
       if (r.perf) cardMap[r.card].perf += amt;
       if (r.disc) cardMap[r.card].disc += amt;
@@ -100,24 +100,33 @@ const SplitPage = (() => {
     const catMap = {};
     rows.forEach(r => {
       const cat = r.category || '-';
-      catMap[cat] = (catMap[cat] || 0) + Utils.parseNum(r.amount);
+      catMap[cat] = (catMap[cat] || 0) + safeAmount(r.amount);
     });
-    const topCats = Object.entries(catMap).filter(([k]) => k !== '-').sort((a, b) => b[1] - a[1]);
+    const topCats = (settings.categories || [])
+      .filter(c => c && typeof c === 'object' && c.name && !c.inactive)
+      .map(c => [c.name, catMap[c.name] || 0])
+      .sort((a, b) => b[1] - a[1]);
 
     const validCards = (settings.cards || []).filter(c => c && typeof c === 'object' && c.name && !c.inactive);
     const myCards = validCards.filter(c => (c.owner || 'me') === 'me' || (c.owner || 'me') === 'common');
     const spouseCards = validCards.filter(c => c.owner === 'spouse');
+    const maxDashRows = Math.max(myCards.length, spouseCards.length, topCats.length, 1);
+    const cardHeight = Math.min(218, Math.max(148, 46 + maxDashRows * 22));
+    const dash = Utils.el('sp-dash');
+    if (!dash) return;
+    dash.style.height = `${cardHeight + 22}px`;
+    dash.style.setProperty('--sp-dash-card-h', `${cardHeight}px`);
+    dash.style.setProperty('--sp-dash-card-body-h', `${Math.max(112, cardHeight - 32)}px`);
 
-    const thS = 'padding:2px 8px 2px 0;font-size:9px;color:var(--text2);font-weight:400;text-align:left;border-bottom:0.5px solid var(--border)';
+    const thS = 'padding:2px 8px 2px 0;font-size:9px;color:var(--text2);font-weight:500;text-align:left;border-bottom:0.5px solid var(--border)';
 
     function cardTableHtml(cards, label) {
       if (!cards.length) return '';
-      const hasMore = cards.length > 7;
       return `
-        <div style="display:inline-block;vertical-align:top;margin-right:14px">
-          <div style="font-size:9px;color:var(--text3);margin-bottom:4px">${label}</div>
-          <div style="${hasMore ? 'max-height:160px;overflow-y:auto' : ''}">
-          <table style="border-collapse:collapse;font-size:11px;white-space:nowrap">
+        <div class="sp-dash-card">
+          <div style="font-size:9px;color:var(--text2);margin-bottom:4px">${label}</div>
+          <div class="sp-dash-card-body">
+          <table style="border-collapse:collapse;font-size:11px">
             <thead><tr>
               <th style="${thS}">카드</th>
               <th style="${thS};text-align:right">총사용</th>
@@ -129,9 +138,10 @@ const SplitPage = (() => {
               ${cards.map(c => {
                 const cd = cardMap[c.name] || { perf: 0, disc: 0, total: 0 };
                 const remaining = (c.perf || 0) - cd.perf;
-                const rc = remaining <= 0 ? 'var(--green-text)' : remaining < 50000 ? 'var(--amber-text)' : 'var(--text1)';
-                return `<tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:3px 10px 3px 0;color:var(--text2)">${esc(c.name)}</td>
+                const isNegative = remaining < 0;
+                const rc = isNegative ? 'var(--text2)' : remaining === 0 ? 'var(--green-text)' : remaining < 50000 ? 'var(--amber-text)' : 'var(--text1)';
+                return `<tr style="border-bottom:0.5px solid var(--border);${isNegative ? 'opacity:.72' : ''}">
+                  <td style="padding:3px 10px 3px 0;color:var(--text1);font-weight:500">${esc(c.name)}</td>
                   <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">${Utils.fmt(cd.total)}</td>
                   <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">${Utils.fmt(cd.perf)}</td>
                   <td style="padding:3px 8px;text-align:right;color:var(--text3);font-variant-numeric:tabular-nums">${c.perf ? Utils.fmt(c.perf) : '-'}</td>
@@ -145,24 +155,21 @@ const SplitPage = (() => {
     }
 
     Utils.el('sp-dash').innerHTML = `
-      <div style="display:inline-flex;align-items:flex-start;gap:16px">
-        <div style="margin-right:4px;flex-shrink:0">
-          <div style="font-size:9px;color:var(--text3);margin-bottom:2px">총 지출</div>
+      <div class="sp-dash-inner">
+        <div class="sp-dash-card sp-dash-total">
+          <div style="font-size:9px;color:var(--text2);margin-bottom:2px">총 지출</div>
           <div style="font-size:20px;font-weight:500;font-variant-numeric:tabular-nums">${Utils.fmt(total)}</div>
         </div>
-        <div style="width:0.5px;background:var(--border);align-self:stretch"></div>
         ${cardTableHtml(myCards, '내 카드')}
-        ${spouseCards.length ? `<div style="width:0.5px;background:var(--border);align-self:stretch"></div>` : ''}
         ${cardTableHtml(spouseCards, '남편 카드')}
         ${topCats.length ? `
-        <div style="width:0.5px;background:var(--border);align-self:stretch"></div>
-        <div style="display:inline-block;vertical-align:top">
-          <div style="font-size:9px;color:var(--text3);margin-bottom:4px">구분별</div>
-          <table style="border-collapse:collapse;font-size:11px;white-space:nowrap">
+        <div class="sp-dash-card">
+          <div style="font-size:9px;color:var(--text2);margin-bottom:4px">구분별</div>
+          <table style="border-collapse:collapse;font-size:11px">
             <tbody>
               ${topCats.map(([cat, amt]) => `
                 <tr style="border-bottom:0.5px solid var(--border)">
-                  <td style="padding:3px 10px 3px 0;color:var(--text2)">${esc(cat)}</td>
+                  <td style="padding:3px 10px 3px 0;color:var(--text1);font-weight:500">${esc(cat)}</td>
                   <td style="padding:3px 0;text-align:right;font-variant-numeric:tabular-nums">${Utils.fmt(amt)}</td>
                 </tr>`).join('')}
             </tbody>
@@ -254,15 +261,16 @@ const SplitPage = (() => {
     const wasAtBottom = wrap ? (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40) : true;
 
     wrap.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
+      <table class="sp-table">
         <colgroup>
-          <col style="width:80px"><col style="width:130px"><col style="width:76px">
-          <col style="width:108px"><col style="width:64px"><col style="width:26px">
-          <col style="width:26px"><col style="width:50px"><col style="width:22px">
+          <col style="width:48px"><col style="width:112px"><col style="width:70px"><col style="width:64px">
+          <col style="width:120px"><col style="width:72px"><col style="width:30px">
+          <col style="width:30px"><col style="width:58px"><col style="width:24px">
         </colgroup>
         <thead><tr style="position:sticky;top:0;background:var(--bg1);z-index:1;border-bottom:0.5px solid var(--border)">
           <th style="${thStyle}">날짜</th>
           <th style="${thStyle}">항목</th>
+          <th style="${thStyle}">쇼핑몰</th>
           <th style="${thStyle};text-align:right">금액</th>
           <th style="${thStyle}">카드</th>
           <th style="${thStyle}">구분</th>
@@ -287,9 +295,9 @@ const SplitPage = (() => {
   const selStyle = 'width:100%;height:22px;padding:0 2px;font-size:10px;border:none;background:transparent;color:var(--text1);';
 
   function rowBg(status) {
-    if (status === '1') return 'rgba(250,238,218,.5)';
-    if (status === '2') return 'rgba(252,235,235,.5)';
-    if (status === '3') return 'rgba(238,237,254,.5)';
+    if (status === '1') return 'rgba(230,241,251,.72)';
+    if (status === '2') return 'rgba(234,243,222,.72)';
+    if (status === '3') return 'rgba(255,239,204,.82)';
     return '';
   }
 
@@ -300,12 +308,22 @@ const SplitPage = (() => {
     return d;
   }
 
+  function safeAmount(v) {
+    const n = Utils.parseNum(v);
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
+  }
+
+  function formatAmount(v) {
+    const n = safeAmount(v);
+    return n ? Utils.fmt(n) : '';
+  }
+
   function rowHtml(row, idx, cards, cats) {
     const isMg = Utils.isMgCard(row.card);
     const cardOpts = cards.map(c => `<option value="${esc(c)}"${c === row.card ? ' selected' : ''}>${esc(c)}</option>`).join('');
     const catOpts = '<option value="">-</option>' + cats.map(c => `<option value="${esc(c)}"${c === row.category ? ' selected' : ''}>${esc(c)}</option>`).join('');
     const stOpts = [['','-'],['1','배송'],['2','확인'],['3','예정']].map(([v,l]) => `<option value="${v}"${row.status === v ? ' selected' : ''}>${l}</option>`).join('');
-    const amtVal = row.amount ? Utils.fmt(row.amount) : '';
+    const amtVal = formatAmount(row.amount);
     const bg = rowBg(row.status);
     const hasMemo = !!row.memo;
     const memoTip = hasMemo ? ` title="${esc(row.memo)}"` : '';
@@ -313,6 +331,7 @@ const SplitPage = (() => {
     return `<tr data-row-idx="${idx}" style="border-bottom:0.5px solid var(--border);background:${bg}" ${memoTip}>
       <td style="padding:0 2px">${inp(idx, 'date', fmtDate(row.date), '날짜')}</td>
       <td style="padding:0 2px;position:relative">${inp(idx, 'item', row.item || '', '항목명')}${hasMemo ? `<span style="position:absolute;right:2px;top:50%;transform:translateY(-50%);color:var(--blue-text);font-size:9px;pointer-events:none">✎</span>` : ''}</td>
+      <td style="padding:0 2px">${inp(idx, 'shop', row.shop || '', '쇼핑몰')}</td>
       <td style="padding:0 2px">${inp(idx, 'amount', amtVal, '0', 'text-align:right')}</td>
       <td style="padding:0 1px">${sel(idx, 'card', cardOpts)}</td>
       <td style="padding:0 1px">${sel(idx, 'category', catOpts)}</td>
@@ -330,6 +349,7 @@ const SplitPage = (() => {
     return `<tr id="sp-new-row" style="border-bottom:0.5px solid var(--border);background:var(--bg2)">
       <td style="padding:0 2px">${ninp('date', '', '날짜')}</td>
       <td style="padding:0 2px">${ninp('item', '', '항목명')}</td>
+      <td style="padding:0 2px">${ninp('shop', '', '쇼핑몰')}</td>
       <td style="padding:0 2px">${ninp('amount', '', '0', 'text-align:right')}</td>
       <td style="padding:0 1px">${nsel('card', cardOpts)}</td>
       <td style="padding:0 1px">${nsel('category', catOpts)}</td>
@@ -392,8 +412,9 @@ const SplitPage = (() => {
 
     if (field === 'amount') {
       const raw = el.value.replace(/[^0-9]/g, '');
-      _rows[idx].amount = raw ? Number(raw) : '';
-      if (raw) el.value = Utils.fmt(raw);
+      const amount = raw ? Number(raw) : 0;
+      _rows[idx].amount = Number.isFinite(amount) && amount > 0 ? amount : '';
+      el.value = _rows[idx].amount ? Utils.fmt(_rows[idx].amount) : '';
     } else {
       _rows[idx][field] = el.value;
     }
@@ -488,7 +509,8 @@ const SplitPage = (() => {
     nr.querySelectorAll('.new-inp').forEach(input => {
       if (input.dataset.field === 'amount') {
         const raw = input.value.replace(/[^0-9]/g, '');
-        row.amount = raw ? Number(raw) : '';
+        const amount = raw ? Number(raw) : 0;
+        row.amount = Number.isFinite(amount) && amount > 0 ? amount : '';
       } else if (input.dataset.field === 'date') {
         row.date = normalizeDate(input.value) || row.date;
       } else {
@@ -578,6 +600,7 @@ const SplitPage = (() => {
   }
 
   function scheduleSave(immediate = false) {
+    _dirty = true;
     setSaveStatus('저장 대기 중...');
     clearTimeout(_saveTimer);
 
@@ -619,10 +642,13 @@ const SplitPage = (() => {
   }
 
   async function doSave() {
-    const validRows = _rows.filter(r => r.item || r.amount);
+    const validRows = _rows
+      .map(r => ({ ...r, amount: safeAmount(r.amount) || '' }))
+      .filter(r => r.item || r.amount);
     try {
       await API.saveTransactions(APP_STATE.currentMonth, validRows);
       APP_STATE.transactions = validRows.map(r => ({ ...r }));
+      _dirty = false;
       setSaveStatus('저장됨');
       setTimeout(() => setSaveStatus(''), 1200);
       renderDash();
@@ -660,6 +686,7 @@ const SplitPage = (() => {
   }
 
   function flushSave() {
+    if (!_dirty) return Promise.resolve();
     clearTimeout(_saveTimer);
     _lastSavePromise = doSaveQueued();
     return _lastSavePromise;
@@ -832,20 +859,22 @@ const SplitPage = (() => {
     });
 
     c.querySelectorAll('.mc-img-input').forEach(input => {
-      input.onchange = e => {
+      input.onchange = async e => {
         const ci = Number(input.dataset.ci);
-        Array.from(e.target.files).forEach(file => {
-          const reader = new FileReader();
-          reader.onload = ev => {
+        for (const file of Array.from(e.target.files)) {
+          try {
+            const dataUrl = await Utils.resizeImageFile(file);
             _memo.cards[ci].images = _memo.cards[ci].images || [];
-            const image = { name: file.name, dataUrl: ev.target.result };
+            const image = { name: file.name, dataUrl };
             _memo.cards[ci].images.push(image);
             storeMemoImage(ci, _memo.cards[ci].images.length - 1, image);
             renderMemoCards();
             scheduleMemoSave();
-          };
-          reader.readAsDataURL(file);
-        });
+          } catch (err) {
+            console.warn('[SplitPage.imageResize]', err);
+            showToast(err.message || '이미지를 줄이는 중 문제가 발생했습니다', 3000);
+          }
+        }
         e.target.value = '';
       };
     });
@@ -912,7 +941,11 @@ const SplitPage = (() => {
     _memoSaveTimer = setTimeout(async () => {
       try {
         persistMemoImagesLocal(_memo);
-        await API.saveMemo(APP_STATE.currentMonth, _memo);
+        const toSave = JSON.parse(JSON.stringify(_memo));
+        if (toSave.cards) toSave.cards.forEach(card => {
+          if (card.images) card.images = card.images.map(img => ({ name: img.name }));
+        });
+        await API.saveMemo(APP_STATE.currentMonth, toSave);
         APP_STATE.memo = hydrateMemoImages(JSON.parse(JSON.stringify(_memo)));
       } catch (err) {
         console.error('[SplitPage.scheduleMemoSave]', err);

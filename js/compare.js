@@ -19,7 +19,7 @@ const ComparePage = (() => {
     const content = Utils.el('content');
 
     content.innerHTML = `
-      <div class="page active" id="p-compare">
+      <div class="page active page-shell" id="p-compare">
 
         <div class="filter-row" style="margin-bottom:12px">
           <span class="filter-label">카드</span>

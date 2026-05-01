@@ -63,6 +63,7 @@ const InputPage = (() => {
       <div class="input-header">
         <span class="col-label">날짜</span>
         <span class="col-label">항목</span>
+        <span class="col-label">쇼핑몰</span>
         <span class="col-label" style="text-align:right">금액</span>
         <span class="col-label">카드</span>
         <span class="col-label">구분</span>
@@ -126,6 +127,7 @@ const InputPage = (() => {
       <div class="input-row" data-idx="${idx}">
         <input type="text" data-field="date" value="${row.date || ''}" placeholder="4/1" />
         <input type="text" data-field="item" value="${row.item || ''}" placeholder="항목명" />
+        <input type="text" data-field="shop" value="${row.shop || ''}" placeholder="쇼핑몰" />
         <input type="text" data-field="amount" value="${amountVal}" placeholder="0" class="amount-input" />
         <select data-field="card">${cardOpts}</select>
         <select data-field="category">${catOpts}</select>

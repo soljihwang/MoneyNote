@@ -3,7 +3,7 @@
 
 :root {
   --bg1: #ffffff;
-  --bg2: #f6f6f4;
+  --bg2: #f4f7f9;
   --bg3: #efefec;
   --text1: #1a1a1a;
   --text2: #6b6b6b;
@@ -21,14 +21,6 @@
   --blue: #378ADD; --blue-bg: #E6F1FB; --blue-text: #0C447C;
   --gray-bg: #F1EFE8; --gray-text: #5F5E5A;
   --purple-bg: #EEEDFE; --purple-text: #3C3489;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg1: #1c1c1a; --bg2: #252523; --bg3: #2e2e2b;
-    --text1: #e8e8e4; --text2: #9a9a94; --text3: #606058;
-    --border: rgba(255,255,255,0.09); --border2: rgba(255,255,255,0.16);
-  }
 }
 
 body {
@@ -274,6 +266,11 @@ body {
 
 .page { display: none; }
 .page.active { display: block; }
+.page-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 6px 4px 24px;
+}
 
 /* ── 로딩 ── */
 .page-loading {
@@ -366,6 +363,61 @@ body {
 .cat-bar-fill  { height: 100%; border-radius: 2px; }
 .cat-bar-val   { font-size: 10px; text-align: right; color: var(--text2); font-variant-numeric: tabular-nums; }
 
+#sp-dash {
+  width: 100%;
+  overflow: hidden !important;
+}
+.sp-dash-inner {
+  display: grid;
+  grid-template-columns: 150px 330px 240px;
+  gap: 10px;
+  align-items: start;
+  width: 740px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.sp-dash-card {
+  min-width: 0;
+  height: var(--sp-dash-card-h, 158px);
+  max-height: 218px;
+  overflow: hidden;
+  background: var(--bg2);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  color: var(--text1);
+}
+.sp-dash-card-body {
+  height: var(--sp-dash-card-body-h, 126px);
+  max-height: 186px;
+  overflow: hidden;
+}
+.sp-dash-card table {
+  width: 100%;
+  table-layout: fixed;
+}
+.sp-dash-card th,
+.sp-dash-card td {
+  color: var(--text1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-dash-card th { color: var(--text2); }
+.sp-dash-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.sp-table {
+  width: 628px;
+  min-width: 628px;
+  max-width: 628px;
+  border-collapse: collapse;
+  font-size: 11px;
+  table-layout: fixed;
+}
+
 /* ── 입력 탭 ── */
 .mg-hint {
   font-size: 10px;
@@ -378,11 +430,21 @@ body {
 }
 .mg-hint.show { display: block; }
 
+#p-input {
+  overflow-x: auto;
+  width: 660px;
+  min-width: 660px;
+  max-width: 660px;
+}
+
 .input-header, .input-row {
   display: grid;
-  grid-template-columns: 50px minmax(0,1.5fr) 80px 110px 72px 30px 30px 62px 26px 26px;
+  grid-template-columns: 48px 112px 70px 64px 120px 72px 30px 30px 58px 26px 26px;
   gap: 4px;
   align-items: center;
+  width: 660px;
+  min-width: 660px;
+  max-width: 660px;
 }
 .input-header { margin-bottom: 3px; }
 .col-label {
@@ -412,6 +474,17 @@ body {
 .input-row select:focus { outline: none; border-color: var(--text2); }
 .input-row input[type=number] { text-align: right; }
 .input-row input[type=number]::-webkit-inner-spin-button { opacity: 0; }
+
+#p-memo input,
+#p-memo textarea,
+#p-memo [contenteditable="true"] {
+  color: var(--text1);
+  background: var(--bg1);
+}
+#p-memo input::placeholder,
+#p-memo textarea::placeholder {
+  color: var(--text3);
+}
 
 .chk-wrap { display: flex; align-items: center; justify-content: center; }
 .chk-wrap input[type=checkbox] {
@@ -487,7 +560,7 @@ body {
 }
 .filter-label { font-size: 10px; color: var(--text2); }
 
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow-x: auto; max-width: 100%; }
 
 .ledger-table {
   width: 100%;
@@ -850,6 +923,12 @@ body {
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+select,
+option {
+  color: var(--text1);
+  background: var(--bg1);
+}
+
 /* ── 반응형 ── */
 @media (max-width: 640px) {
   .app { grid-template-columns: 1fr; }
@@ -870,6 +949,8 @@ body {
   .dash-grid { grid-template-columns: 1fr 1fr; }
   .input-header,
   .input-row {
-    grid-template-columns: 44px minmax(0,1fr) 70px 96px 62px 28px 28px 54px 22px 22px;
+    grid-template-columns: 48px 112px 70px 64px 120px 72px 30px 30px 58px 26px 26px;
   }
+  .sp-dash-inner { grid-template-columns: 150px 330px 240px; }
+  .sp-dash-card { height: var(--sp-dash-card-h, 158px); max-height: 218px; }
 }

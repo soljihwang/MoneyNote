@@ -14,7 +14,7 @@ const SettingsPage = (() => {
     const s = _settings;
 
     Utils.el('content').innerHTML = `
-      <div class="page active" id="p-settings">
+      <div class="page active page-shell" id="p-settings">
 
         <div class="settings-section">
           <div class="settings-section-title">카드별 실적 / 할인 설정</div>
@@ -249,7 +249,7 @@ const SettingsPage = (() => {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = '설정 저장';
+        btn.textContent = '저장';
       }
     }
   }

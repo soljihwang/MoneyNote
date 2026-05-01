@@ -150,7 +150,6 @@ const DashboardPage = (() => {
     const maxAmt = Math.max(...Object.values(catMap).concat([1]));
     const sorted = [...categories]
       .map(c => ({ name: c.name, amt: catMap[c.name] || 0, budget: c.budget }))
-      .filter(c => c.amt > 0)
       .sort((a, b) => b.amt - a.amt);
 
     if (!sorted.length) return '<div style="color:var(--text3);font-size:11px;padding:4px 0">내역 없음</div>';

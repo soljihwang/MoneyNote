@@ -6,6 +6,10 @@
 const MemoPage = (() => {
   let _memo = null;
   let _saveTimer = null;
+  let _saveInProgress = false;
+  let _savePending = false;
+  let _dirty = false;
+  let _flushEventsBound = false;
   const DEBOUNCE = 800;
   const GLOBAL_KEY = 'GLOBAL';
 
@@ -21,8 +25,10 @@ const MemoPage = (() => {
       _memo = saved ? JSON.parse(saved) : defaultGlobalMemo();
     }
     if (!_memo.cards) _memo.cards = [];
+    _dirty = false;
 
     render();
+    bindFlushEvents();
   }
 
   function defaultGlobalMemo() {
@@ -32,10 +38,11 @@ const MemoPage = (() => {
   function render() {
     const content = Utils.el('content');
     content.innerHTML = `
-      <div class="page active" id="p-memo">
+      <div class="page active page-shell" id="p-memo">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <div style="font-size:12px;color:var(--text2)">월에 귀속되지 않는 공통 메모</div>
-          <div style="position:relative">
+          <div style="position:relative;display:flex;align-items:center;gap:8px">
+            <span id="memo-save-status" style="font-size:10px;color:var(--text3)"></span>
             <button id="memo-add-btn" class="btn btn-sm">+ 추가</button>
             <div id="memo-add-menu" style="display:none;position:absolute;right:0;top:30px;background:var(--bg1);border:0.5px solid var(--border2);border-radius:6px;padding:4px 0;z-index:50;min-width:120px;box-shadow:0 4px 12px rgba(0,0,0,.1)">
               ${['checklist:체크리스트','free:자유 메모','info:정보','image:이미지'].map(s => {
@@ -178,17 +185,19 @@ const MemoPage = (() => {
       };
     });
     wrap.querySelectorAll('.mc-img-input').forEach(inp => {
-      inp.onchange = e => {
+      inp.onchange = async e => {
         const ci = +inp.dataset.ci;
-        Array.from(e.target.files).forEach(file => {
-          const reader = new FileReader();
-          reader.onload = ev => {
+        for (const file of Array.from(e.target.files)) {
+          try {
+            const dataUrl = await Utils.resizeImageFile(file);
             _memo.cards[ci].images = _memo.cards[ci].images || [];
-            _memo.cards[ci].images.push({name: file.name, dataUrl: ev.target.result});
+            _memo.cards[ci].images.push({name: file.name, dataUrl});
             renderCards(); scheduleSave();
-          };
-          reader.readAsDataURL(file);
-        });
+          } catch (err) {
+            console.warn('[MemoPage.imageResize]', err);
+            showToast(err.message || '이미지를 줄이는 중 문제가 발생했습니다', 3000);
+          }
+        }
         e.target.value = '';
       };
     });
@@ -205,22 +214,77 @@ const MemoPage = (() => {
     renderCards(); scheduleSave();
   }
 
-  function scheduleSave() {
+  function scheduleSave(immediate = false) {
+    _dirty = true;
+    setSaveStatus('저장 대기 중...');
     clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(doSave, DEBOUNCE);
+    if (immediate) return doSaveQueued();
+    _saveTimer = setTimeout(doSaveQueued, DEBOUNCE);
+  }
+
+  async function doSaveQueued() {
+    if (_saveInProgress) {
+      _savePending = true;
+      return;
+    }
+    _saveInProgress = true;
+    setSaveStatus('저장 중...');
+    try {
+      do {
+        _savePending = false;
+        await doSave();
+      } while (_savePending);
+    } finally {
+      _saveInProgress = false;
+    }
   }
 
   async function doSave() {
+    if (!_dirty) return;
     try {
-      // 이미지 제외하고 GAS 저장
       const toSave = JSON.parse(JSON.stringify(_memo));
+      _dirty = false;
+      try { localStorage.setItem('ledger_global_memo', JSON.stringify(_memo)); } catch {}
       if (toSave.cards) toSave.cards.forEach(card => {
-        if (card.images) card.images = card.images.map(img => ({name: img.name}));
+        if (card.images) card.images = card.images.map(img => ({ name: img.name }));
       });
       await API.saveMemo(GLOBAL_KEY, toSave);
-    } catch {}
-    // 이미지 포함해서 localStorage 저장
-    try { localStorage.setItem('ledger_global_memo', JSON.stringify(_memo)); } catch {}
+      setSaveStatus('저장됨');
+    } catch (err) {
+      _dirty = true;
+      setSaveStatus('저장 실패');
+      showToast(`메모 저장 실패: ${err.message || err}`, 3000);
+    }
+  }
+
+  function setSaveStatus(text) {
+    const el = Utils.el('memo-save-status');
+    if (el) el.textContent = text;
+  }
+
+  function bindFlushEvents() {
+    if (_flushEventsBound) return;
+    _flushEventsBound = true;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushSave();
+    });
+
+    window.addEventListener('beforeunload', () => {
+      flushSave();
+    });
+
+    document.addEventListener('click', e => {
+      const navTarget = e.target.closest('[data-page], [data-route], .nav-item, .tab-btn, .gnb-item, .menu-item');
+      if (!navTarget) return;
+      flushSave();
+    }, true);
+  }
+
+  function flushSave() {
+    if (!_dirty) return Promise.resolve();
+    clearTimeout(_saveTimer);
+    return doSaveQueued();
   }
 
   function openLightbox(src) {
@@ -238,8 +302,8 @@ const MemoPage = (() => {
   }
 
   async function save() {
-    await doSave();
-    showToast('저장됨');
+    _dirty = true;
+    await scheduleSave(true);
   }
 
   function esc(s) {
