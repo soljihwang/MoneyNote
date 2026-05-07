@@ -17,12 +17,12 @@ const MemoPage = (() => {
     const content = Utils.el('content');
     content.innerHTML = '<div class="page-loading"><div class="loading-spinner"></div></div>';
 
+    const localMemo = readLocalMemo();
     try {
       const data = await API.getMemo(GLOBAL_KEY);
-      _memo = data || defaultGlobalMemo();
+      _memo = normalizeMemoImages(data || localMemo || defaultGlobalMemo());
     } catch {
-      const saved = localStorage.getItem('ledger_global_memo');
-      _memo = saved ? JSON.parse(saved) : defaultGlobalMemo();
+      _memo = normalizeMemoImages(localMemo || defaultGlobalMemo());
     }
     if (!_memo.cards) _memo.cards = [];
     _dirty = false;
@@ -33,6 +33,42 @@ const MemoPage = (() => {
 
   function defaultGlobalMemo() {
     return { cards: [] };
+  }
+
+  function readLocalMemo() {
+    try {
+      const saved = localStorage.getItem('ledger_global_memo');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function persistMemoLocal() {
+    try {
+      localStorage.setItem('ledger_global_memo', JSON.stringify(normalizeMemoImages(JSON.parse(JSON.stringify(_memo)))));
+    } catch (err) {
+      console.warn('[MemoPage.persistMemoLocal]', err);
+    }
+  }
+
+  function normalizeMemoImages(memo) {
+    const normalized = memo || defaultGlobalMemo();
+    normalized.cards = normalized.cards || [];
+
+    normalized.cards = normalized.cards.map(card => {
+      if (card.type !== 'image') return card;
+      return {
+        ...card,
+        images: (card.images || []).map(img => ({
+          name: img?.name || '',
+          path: img?.path || '',
+          url: img?.url || (img?.path ? API.getImagePublicUrl(img.path) : ''),
+        })),
+      };
+    });
+
+    return normalized;
   }
 
   function render() {
@@ -119,8 +155,8 @@ const MemoPage = (() => {
       const imgs = card.images || [];
       body = `<div class="img-thumb-row">
         ${imgs.map((img, ii) => `
-          <div class="img-thumb" onclick="MemoPage.openLightbox('${img.dataUrl||''}')">
-            ${img.dataUrl ? `<img src="${img.dataUrl}" />` : `<div style="font-size:9px;color:var(--text3);padding:4px">${esc(img.name||'')}</div>`}
+          <div class="img-thumb" onclick="MemoPage.openLightbox('${getImageUrl(img)}')">
+            ${getImageUrl(img) ? `<img src="${getImageUrl(img)}" />` : `<div style="font-size:9px;color:var(--text3);padding:4px">${esc(img.name||'')}</div>`}
             <div class="img-thumb-del" onclick="event.stopPropagation();MemoPage.delImg(${ci},${ii})">×</div>
           </div>`).join('')}
       </div>
@@ -191,7 +227,8 @@ const MemoPage = (() => {
           try {
             const dataUrl = await Utils.resizeImageFile(file);
             _memo.cards[ci].images = _memo.cards[ci].images || [];
-            _memo.cards[ci].images.push({name: file.name, dataUrl});
+            _memo.cards[ci].images.push(await uploadMemoImage(file, dataUrl));
+            persistMemoLocal();
             renderCards(); scheduleSave();
           } catch (err) {
             console.warn('[MemoPage.imageResize]', err);
@@ -216,6 +253,7 @@ const MemoPage = (() => {
 
   function scheduleSave(immediate = false) {
     _dirty = true;
+    persistMemoLocal();
     setSaveStatus('저장 대기 중...');
     clearTimeout(_saveTimer);
     if (immediate) return doSaveQueued();
@@ -244,10 +282,7 @@ const MemoPage = (() => {
     try {
       const toSave = JSON.parse(JSON.stringify(_memo));
       _dirty = false;
-      try { localStorage.setItem('ledger_global_memo', JSON.stringify(_memo)); } catch {}
-      if (toSave.cards) toSave.cards.forEach(card => {
-        if (card.images) card.images = card.images.map(img => ({ name: img.name }));
-      });
+      persistMemoLocal();
       await API.saveMemo(GLOBAL_KEY, toSave);
       setSaveStatus('저장됨');
     } catch (err) {
@@ -296,7 +331,30 @@ const MemoPage = (() => {
     document.body.appendChild(lb);
   }
 
+  function getImageUrl(image) {
+    if (!image) return '';
+    if (image.url) return image.url;
+    if (image.path) return API.getImagePublicUrl(image.path);
+    return '';
+  }
+
+  async function uploadMemoImage(file, dataUrl) {
+    const safeName = Utils.safeFileName(file?.name || 'image.jpg');
+    const path = `memo/global/${Date.now()}-${safeName}`;
+    const blob = Utils.dataUrlToBlob(dataUrl);
+    const uploaded = await API.uploadImage(path, blob, blob.type || file?.type || 'image/jpeg');
+    return {
+      name: file?.name || safeName,
+      path: uploaded.path,
+      url: uploaded.url,
+    };
+  }
+
   function delImg(ci, ii) {
+    const image = _memo.cards[ci]?.images?.[ii];
+    if (image?.path) {
+      API.deleteImage(image.path).catch(err => console.warn('[MemoPage.deleteImage]', err));
+    }
     _memo.cards[ci].images.splice(ii, 1);
     renderCards(); scheduleSave();
   }

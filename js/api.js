@@ -12,6 +12,7 @@
 
 const API = (() => {
   const sb = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+  const IMAGE_BUCKET = 'money-note-images';
 
   const CACHE_PREFIX = 'ledger_';
   const CACHE_TTL = 5 * 60 * 1000;
@@ -88,26 +89,83 @@ const API = (() => {
     };
   }
 
+  function normalizeImageMeta(img) {
+    const name = img?.name || '';
+    const path = img?.path || '';
+    const url = img?.url || (path ? getImagePublicUrl(path) : '');
+    return { name, path, url };
+  }
+
+  function normalizeMemo(memo) {
+    const m = JSON.parse(JSON.stringify(memo || defaultMemo()));
+
+    if (Array.isArray(m.cards)) {
+      m.cards.forEach(card => {
+        if (Array.isArray(card.images)) {
+          card.images = card.images.map(normalizeImageMeta);
+        } else {
+          card.images = [];
+        }
+      });
+    } else {
+      m.cards = [];
+    }
+
+    if (Array.isArray(m.images)) {
+      m.images = m.images.map(normalizeImageMeta);
+    } else {
+      m.images = [];
+    }
+
+    return m;
+  }
+
   function sanitizeMemo(memo) {
-    const m = JSON.parse(JSON.stringify(memo || {}));
+    const m = normalizeMemo(memo);
 
     if (m.cards) {
       m.cards.forEach(card => {
         if (card.images) {
-          card.images = card.images.map(img => ({
-            name: img.name || '',
-          }));
+          card.images = card.images.map(normalizeImageMeta);
         }
       });
     }
 
     if (m.images) {
-      m.images = m.images.map(img => ({
-        name: img.name || '',
-      }));
+      m.images = m.images.map(normalizeImageMeta);
     }
 
     return m;
+  }
+
+  async function uploadImage(path, blob, contentType = 'image/jpeg') {
+    const res = await sb.storage
+      .from(IMAGE_BUCKET)
+      .upload(path, blob, {
+        contentType,
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    check(res);
+
+    return {
+      path: res.data?.path || path,
+      url: getImagePublicUrl(res.data?.path || path),
+    };
+  }
+
+  function getImagePublicUrl(path) {
+    if (!path) return '';
+    const res = sb.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+    return res?.data?.publicUrl || '';
+  }
+
+  async function deleteImage(path) {
+    if (!path) return { ok: true };
+    const res = await sb.storage.from(IMAGE_BUCKET).remove([path]);
+    check(res);
+    return { ok: true };
   }
 
   function normalizeSettings(settings) {
@@ -193,6 +251,18 @@ const API = (() => {
       inactive: cat.inactive === true,
       sort_order: sortOrder,
     };
+  }
+
+  function dedupeByName(items) {
+    const map = new Map();
+
+    items.forEach(item => {
+      const name = String(item?.name || '').trim();
+      if (!name) return;
+      map.set(name, { ...item, name });
+    });
+
+    return [...map.values()];
   }
 
   async function getMonths() {
@@ -323,7 +393,7 @@ const API = (() => {
 
     check(res);
 
-    const memo = res.data && res.data.memo ? res.data.memo : defaultMemo();
+    const memo = normalizeMemo(res.data && res.data.memo ? res.data.memo : defaultMemo());
 
     setCache(ck, memo);
     return memo;
@@ -342,9 +412,6 @@ const API = (() => {
 
   async function getSettings(monthArg) {
     const month = monthArg || await settingsMonth();
-    const ck = cacheKey('getSettings', month);
-    const cached = getCache(ck);
-    if (cached !== null) return cached;
 
     const [monthRes, cardRes, catRes] = await Promise.all([
       sb
@@ -381,14 +448,23 @@ const API = (() => {
           categories: (catRes.data || []).map(categoryFromDb),
         };
 
-    setCache(ck, settings);
     return settings;
   }
 
   async function saveSettingsForMonth(month, settings) {
     const normalized = normalizeSettings(settings);
-    const cards = normalized.cards.filter(card => card.name);
-    const categories = normalized.categories.filter(cat => cat.name);
+    const hasCardPayload = Array.isArray(settings?.cards);
+    const hasCategoryPayload = Array.isArray(settings?.categories);
+    const rawCardCount = hasCardPayload ? settings.cards.length : 0;
+    const rawCategoryCount = hasCategoryPayload ? settings.categories.length : 0;
+    const cards = hasCardPayload
+      ? dedupeByName(normalized.cards.filter(card => card.name))
+      : [];
+    const categories = hasCategoryPayload
+      ? dedupeByName(normalized.categories.filter(cat => cat.name))
+      : [];
+    const canReplaceCards = hasCardPayload && (rawCardCount === 0 || cards.length > 0);
+    const canReplaceCategories = hasCategoryPayload && (rawCategoryCount === 0 || categories.length > 0);
 
     check(await sb
       .from('month_settings')
@@ -398,26 +474,46 @@ const API = (() => {
         toggles: normalized.toggles,
       }, { onConflict: 'month' }));
 
-    check(await sb
-      .from('card_month_settings')
-      .delete()
-      .eq('month', month));
-
-    check(await sb
-      .from('category_month_settings')
-      .delete()
-      .eq('month', month));
-
-    if (cards.length) {
-      check(await sb
+    if (canReplaceCards) {
+      const cardNames = cards.map(card => card.name);
+      let cardDeleteQuery = sb
         .from('card_month_settings')
-        .insert(cards.map((card, i) => cardToDb(month, card, i))));
+        .delete()
+        .eq('month', month);
+      if (cardNames.length) {
+        cardDeleteQuery = cardDeleteQuery.not('name', 'in', `(${cardNames.map(name => `"${String(name).replace(/"/g, '\\"')}"`).join(',')})`);
+      }
+      check(await cardDeleteQuery);
     }
 
-    if (categories.length) {
+    if (canReplaceCategories) {
+      const categoryNames = categories.map(cat => cat.name);
+      let categoryDeleteQuery = sb
+        .from('category_month_settings')
+        .delete()
+        .eq('month', month);
+      if (categoryNames.length) {
+        categoryDeleteQuery = categoryDeleteQuery.not('name', 'in', `(${categoryNames.map(name => `"${String(name).replace(/"/g, '\\"')}"`).join(',')})`);
+      }
+      check(await categoryDeleteQuery);
+    }
+
+    if (canReplaceCards && cards.length) {
+      check(await sb
+        .from('card_month_settings')
+        .upsert(
+          cards.map((card, i) => cardToDb(month, card, i)),
+          { onConflict: 'month,name' }
+        ));
+    }
+
+    if (canReplaceCategories && categories.length) {
       check(await sb
         .from('category_month_settings')
-        .insert(categories.map((cat, i) => categoryToDb(month, cat, i))));
+        .upsert(
+          categories.map((cat, i) => categoryToDb(month, cat, i)),
+          { onConflict: 'month,name' }
+        ));
     }
 
     clearCacheForMonth(month);
@@ -486,6 +582,9 @@ const API = (() => {
     getSettings,
     saveSettings,
     getSummary,
+    uploadImage,
+    getImagePublicUrl,
+    deleteImage,
     clearCacheForMonth,
   };
 })();

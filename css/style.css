@@ -369,18 +369,17 @@ body {
 }
 .sp-dash-inner {
   display: grid;
-  grid-template-columns: 150px 330px 240px;
+  grid-template-columns: 150px minmax(0, 1.45fr) minmax(0, 1.45fr) minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  width: 740px;
-  max-width: 100%;
+  width: 100%;
   min-width: 0;
   overflow: hidden;
 }
 .sp-dash-card {
   min-width: 0;
   height: var(--sp-dash-card-h, 158px);
-  max-height: 218px;
+  max-height: 340px;
   overflow: hidden;
   background: var(--bg2);
   border-radius: var(--radius-md);
@@ -389,7 +388,7 @@ body {
 }
 .sp-dash-card-body {
   height: var(--sp-dash-card-body-h, 126px);
-  max-height: 186px;
+  max-height: 308px;
   overflow: hidden;
 }
 .sp-dash-card table {
@@ -410,9 +409,9 @@ body {
   justify-content: center;
 }
 .sp-table {
-  width: 628px;
-  min-width: 628px;
-  max-width: 628px;
+  width: 599px;
+  min-width: 599px;
+  max-width: 599px;
   border-collapse: collapse;
   font-size: 11px;
   table-layout: fixed;
@@ -951,6 +950,6 @@ option {
   .input-row {
     grid-template-columns: 48px 112px 70px 64px 120px 72px 30px 30px 58px 26px 26px;
   }
-  .sp-dash-inner { grid-template-columns: 150px 330px 240px; }
-  .sp-dash-card { height: var(--sp-dash-card-h, 158px); max-height: 218px; }
+  .sp-dash-inner { grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr); }
+  .sp-dash-card { height: var(--sp-dash-card-h, 158px); max-height: 340px; }
 }
