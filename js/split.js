@@ -48,17 +48,17 @@ const SplitPage = (() => {
 
   function renderShell() {
     Utils.el('content').innerHTML = `
-      <div id="sp-dash" style="flex-shrink:0;padding:10px 14px;border-bottom:0.5px solid var(--border);min-height:170px;max-height:360px;overflow:hidden"></div>
-      <div id="sp-filter" style="flex-shrink:0;display:flex;gap:5px;align-items:center;padding:4px 14px;border-bottom:0.5px solid var(--border);flex-wrap:wrap"></div>
+      <div id="sp-dash" class="sp-dash-shell" style="flex-shrink:0;padding:10px 14px;border-bottom:0.5px solid var(--border);min-height:170px;max-height:360px;overflow:hidden"></div>
+      <div id="sp-filter" class="sp-filter-bar" style="flex-shrink:0;display:flex;gap:5px;align-items:center;padding:4px 14px;border-bottom:0.5px solid var(--border);flex-wrap:wrap"></div>
       <div id="sp-body" style="display:grid;grid-template-columns:628px minmax(240px,1fr);flex:1;overflow:hidden;min-height:0">
-        <div style="display:flex;flex-direction:column;overflow:hidden;border-right:0.5px solid var(--border);width:628px;min-width:628px;max-width:628px">
-          <div style="overflow-y:auto;overflow-x:hidden;flex:1;width:628px;max-width:628px" id="sp-table-wrap"></div>
-          <div style="padding:6px 14px;border-top:0.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+        <div class="sp-ledger-panel" style="display:flex;flex-direction:column;overflow:hidden;border-right:0.5px solid var(--border);width:628px;min-width:628px;max-width:628px">
+          <div class="sp-table-wrap" style="overflow-y:auto;overflow-x:hidden;flex:1;width:628px;max-width:628px" id="sp-table-wrap"></div>
+          <div class="sp-table-footer" style="padding:6px 14px;border-top:0.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
             <span style="font-size:10px;color:var(--text3)" id="sp-save-status"></span>
             <span style="font-size:10px;color:var(--text2)" id="sp-count"></span>
           </div>
         </div>
-        <div style="overflow-y:auto;background:var(--bg2)" id="sp-memo-wrap"></div>
+        <div class="sp-memo-panel" style="overflow-y:auto;background:var(--bg2)" id="sp-memo-wrap"></div>
       </div>
       <div id="sp-ctx-menu" style="display:none;position:fixed;background:var(--bg1);border:0.5px solid var(--border2);border-radius:6px;padding:4px 0;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:140px">
         <div id="sp-ctx-memo" style="padding:7px 14px;font-size:12px;cursor:pointer" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">항목 메모 편집</div>
@@ -250,7 +250,7 @@ const SplitPage = (() => {
                 </tr>`
               : '';
 
-            return `<tr style="${isNegative ? 'opacity:.72' : ''}">
+            return `<tr style="border-bottom:0.5px solid var(--border);${isNegative ? 'opacity:.72' : ''}">
               <td style="padding:3px 10px 2px 0;color:var(--text1);font-weight:500">${esc(card.name)}</td>
               <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">${Utils.fmt(summary.total)}</td>
               <td style="padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">${Utils.fmt(summary.perf)}</td>
@@ -311,15 +311,15 @@ const SplitPage = (() => {
     const cats = (settings.categories || []).filter(c => c && typeof c === 'object' && c.name && !c.inactive).map(c => c.name);
 
     Utils.el('sp-filter').innerHTML = `
-      <span style="font-size:10px;color:var(--text2)">필터</span>
+      <span class="sp-filter-label" style="font-size:10px;color:var(--text2)">필터</span>
       ${fsel('f-card', '카드', cards)}
       ${fsel('f-cat', '구분', cats)}
       ${fsel('f-status', '상태', ['배송', '확인', '예정'], ['1', '2', '3'])}
-      <span style="font-size:10px;color:var(--text2)">날짜</span>
-      <input id="f-date-from" type="text" placeholder="시작(4/1)" style="${finpStyle}" />
-      <span style="font-size:10px;color:var(--text3)">~</span>
-      <input id="f-date-to" type="text" placeholder="끝(4/30)" style="${finpStyle}" />
-      <button id="f-reset" style="height:24px;padding:0 8px;font-size:10px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text2);cursor:pointer">초기화</button>`;
+      <span class="sp-filter-label" style="font-size:10px;color:var(--text2)">날짜</span>
+      <input id="f-date-from" class="sp-filter-input" type="text" placeholder="시작(4/1)" style="${finpStyle}" />
+      <span class="sp-filter-sep" style="font-size:10px;color:var(--text3)">~</span>
+      <input id="f-date-to" class="sp-filter-input" type="text" placeholder="끝(4/30)" style="${finpStyle}" />
+      <button id="f-reset" class="sp-filter-reset" style="height:24px;padding:0 8px;font-size:10px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text2);cursor:pointer">초기화</button>`;
 
     ['f-card', 'f-cat', 'f-status'].forEach(id => Utils.el(id)?.addEventListener('change', applyFilter));
     ['f-date-from', 'f-date-to'].forEach(id => Utils.el(id)?.addEventListener('input', applyFilter));
@@ -347,7 +347,7 @@ const SplitPage = (() => {
 
   function fsel(id, placeholder, labels, values) {
     const opts = labels.map((l, i) => `<option value="${values ? values[i] : esc(l)}">${esc(l)}</option>`).join('');
-    return `<select id="${id}" style="height:24px;font-size:11px;padding:0 5px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
+    return `<select id="${id}" class="sp-filter-select" style="height:24px;font-size:11px;padding:0 5px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
       <option value="">${placeholder} 전체</option>${opts}
     </select>`;
   }
@@ -488,17 +488,17 @@ const SplitPage = (() => {
     const hasMemo = !!row.memo;
     const memoTip = hasMemo ? ` title="${esc(row.memo)}"` : '';
 
-    return `<tr data-row-idx="${idx}" style="border-bottom:0.5px solid var(--border);background:${bg}" ${memoTip}>
-      <td style="padding:0 2px">${inp(idx, 'date', fmtDate(row.date), '날짜')}</td>
-      <td style="padding:0 1px">${sel(idx, 'category', catOpts)}</td>
-      <td style="padding:0 2px;position:relative">${inp(idx, 'item', row.item || '', '항목명')}${hasMemo ? `<span style="position:absolute;right:2px;top:50%;transform:translateY(-50%);color:var(--blue-text);font-size:9px;pointer-events:none">✎</span>` : ''}</td>
-      <td style="padding:0 2px">${inp(idx, 'shop', row.shop || '', '쇼핑몰')}</td>
-      <td style="padding:0 2px">${inp(idx, 'amount', amtVal, '0', 'text-align:right')}</td>
-      <td style="padding:0 1px">${sel(idx, 'card', cardOpts)}</td>
-      <td style="text-align:center;padding:0"><input type="checkbox" data-idx="${idx}" data-field="perf" ${row.perf ? 'checked' : ''} style="accent-color:var(--blue);width:12px;height:12px" /></td>
-      <td style="text-align:center;padding:0"><input type="checkbox" data-idx="${idx}" data-field="disc" ${row.disc ? 'checked' : ''} ${!isMg ? 'disabled' : ''} style="accent-color:var(--blue);width:12px;height:12px" /></td>
-      <td style="padding:0 1px">${sel(idx, 'status', stOpts, 'font-size:10px')}</td>
-      <td style="padding:0 1px;text-align:center"><button class="sp-rm" data-idx="${idx}" style="width:18px;height:18px;border:none;background:none;cursor:pointer;font-size:11px;padding:0;line-height:1;color:var(--text3);display:flex;align-items:center;justify-content:center;border-radius:3px" title="삭제" onmouseover="this.style.background='var(--red-bg)';this.style.color='var(--red-text)'" onmouseout="this.style.background='';this.style.color='var(--text3)'">✕</button></td>
+    return `<tr data-row-idx="${idx}" class="sp-row" style="border-bottom:0.5px solid var(--border);background:${bg}" ${memoTip}>
+      <td class="sp-cell" style="padding:0 2px">${inp(idx, 'date', fmtDate(row.date), '날짜')}</td>
+      <td class="sp-cell sp-cell-select" style="padding:0 1px">${sel(idx, 'category', catOpts)}</td>
+      <td class="sp-cell sp-cell-item" style="padding:0 2px;position:relative">${inp(idx, 'item', row.item || '', '항목명')}${hasMemo ? `<span class="sp-memo-indicator" style="position:absolute;right:2px;top:50%;transform:translateY(-50%);color:var(--blue-text);font-size:9px;pointer-events:none">✎</span>` : ''}</td>
+      <td class="sp-cell" style="padding:0 2px">${inp(idx, 'shop', row.shop || '', '쇼핑몰')}</td>
+      <td class="sp-cell" style="padding:0 2px">${inp(idx, 'amount', amtVal, '0', 'text-align:right')}</td>
+      <td class="sp-cell sp-cell-select" style="padding:0 1px">${sel(idx, 'card', cardOpts)}</td>
+      <td class="sp-cell-check" style="text-align:center;padding:0"><input class="sp-chk" type="checkbox" data-idx="${idx}" data-field="perf" ${row.perf ? 'checked' : ''} style="accent-color:var(--blue);width:12px;height:12px" /></td>
+      <td class="sp-cell-check" style="text-align:center;padding:0"><input class="sp-chk" type="checkbox" data-idx="${idx}" data-field="disc" ${row.disc ? 'checked' : ''} ${!isMg ? 'disabled' : ''} style="accent-color:var(--blue);width:12px;height:12px" /></td>
+      <td class="sp-cell sp-cell-select" style="padding:0 1px">${sel(idx, 'status', stOpts, 'font-size:10px')}</td>
+      <td class="sp-cell-remove" style="padding:0 1px;text-align:center"><button class="sp-rm" data-idx="${idx}" style="width:18px;height:18px;border:none;background:none;cursor:pointer;font-size:11px;padding:0;line-height:1;color:var(--text3);display:flex;align-items:center;justify-content:center;border-radius:3px" title="삭제">✕</button></td>
     </tr>`;
   }
 
@@ -506,34 +506,34 @@ const SplitPage = (() => {
     const cardOpts = cards.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
     const catOpts = '<option value="">-</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
     const stOpts = [['','-'],['1','배송'],['2','확인'],['3','예정']].map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
-    return `<tr id="sp-new-row" style="border-bottom:0.5px solid var(--border);background:var(--bg2)">
-      <td style="padding:0 2px">${ninp('date', '', '날짜')}</td>
-      <td style="padding:0 1px">${nsel('category', catOpts)}</td>
-      <td style="padding:0 2px">${ninp('item', '', '항목명')}</td>
-      <td style="padding:0 2px">${ninp('shop', '', '쇼핑몰')}</td>
-      <td style="padding:0 2px">${ninp('amount', '', '0', 'text-align:right')}</td>
-      <td style="padding:0 1px">${nsel('card', cardOpts)}</td>
-      <td style="text-align:center;padding:0"><input type="checkbox" class="new-chk" data-field="perf" checked style="accent-color:var(--blue);width:12px;height:12px" /></td>
-      <td style="text-align:center;padding:0"><input type="checkbox" class="new-chk" data-field="disc" style="accent-color:var(--blue);width:12px;height:12px" /></td>
-      <td style="padding:0 1px">${nsel('status', stOpts, 'font-size:10px')}</td>
+    return `<tr id="sp-new-row" class="sp-row sp-new-row" style="border-bottom:0.5px solid var(--border);background:var(--bg2)">
+      <td class="sp-cell" style="padding:0 2px">${ninp('date', '', '날짜')}</td>
+      <td class="sp-cell sp-cell-select" style="padding:0 1px">${nsel('category', catOpts)}</td>
+      <td class="sp-cell" style="padding:0 2px">${ninp('item', '', '항목명')}</td>
+      <td class="sp-cell" style="padding:0 2px">${ninp('shop', '', '쇼핑몰')}</td>
+      <td class="sp-cell" style="padding:0 2px">${ninp('amount', '', '0', 'text-align:right')}</td>
+      <td class="sp-cell sp-cell-select" style="padding:0 1px">${nsel('card', cardOpts)}</td>
+      <td class="sp-cell-check" style="text-align:center;padding:0"><input type="checkbox" class="new-chk sp-chk" data-field="perf" checked style="accent-color:var(--blue);width:12px;height:12px" /></td>
+      <td class="sp-cell-check" style="text-align:center;padding:0"><input type="checkbox" class="new-chk sp-chk" data-field="disc" style="accent-color:var(--blue);width:12px;height:12px" /></td>
+      <td class="sp-cell sp-cell-select" style="padding:0 1px">${nsel('status', stOpts, 'font-size:10px')}</td>
       <td></td>
     </tr>`;
   }
 
   function inp(idx, field, val, ph, extra = '') {
-    return `<input class="tbl-inp" data-idx="${idx}" data-field="${field}" value="${esc(val)}" placeholder="${ph}" style="${inpStyle}${extra}" />`;
+    return `<input class="tbl-inp sp-field" data-idx="${idx}" data-field="${field}" value="${esc(val)}" placeholder="${ph}" style="${inpStyle}${extra}" />`;
   }
 
   function sel(idx, field, opts, extra = '') {
-    return `<select class="tbl-sel" data-idx="${idx}" data-field="${field}" style="${selStyle}${extra}">${opts}</select>`;
+    return `<select class="tbl-sel sp-field sp-select-field" data-idx="${idx}" data-field="${field}" style="${selStyle}${extra}">${opts}</select>`;
   }
 
   function ninp(field, val, ph, extra = '') {
-    return `<input class="new-inp" data-field="${field}" value="${esc(val)}" placeholder="${ph}" style="${inpStyle}${extra}" />`;
+    return `<input class="new-inp sp-field" data-field="${field}" value="${esc(val)}" placeholder="${ph}" style="${inpStyle}${extra}" />`;
   }
 
   function nsel(field, opts, extra = '') {
-    return `<select class="new-sel" data-field="${field}" style="${selStyle}${extra}">${opts}</select>`;
+    return `<select class="new-sel sp-field sp-select-field" data-field="${field}" style="${selStyle}${extra}">${opts}</select>`;
   }
 
   function parseDateStr(s) {
@@ -876,14 +876,14 @@ const SplitPage = (() => {
 
     wrap.innerHTML = `
       <div style="padding:10px 12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-size:10px;font-weight:500;color:var(--text2)">메모</div>
+        <div class="sp-memo-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="sp-memo-head-title" style="font-size:10px;font-weight:500;color:var(--text2)">메모</div>
           <div style="position:relative">
-            <button id="sp-add-memo-btn" style="font-size:10px;padding:2px 8px;height:22px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg1);color:var(--text2);cursor:pointer">+ 추가</button>
+            <button id="sp-add-memo-btn" class="sp-add-memo-btn" style="font-size:10px;padding:2px 8px;height:22px;border:0.5px solid var(--border2);border-radius:4px;background:var(--bg1);color:var(--text2);cursor:pointer">+ 추가</button>
             <div id="sp-add-memo-menu" style="display:none;position:absolute;right:0;top:26px;background:var(--bg1);border:0.5px solid var(--border2);border-radius:6px;padding:4px 0;z-index:50;min-width:110px;box-shadow:0 4px 12px rgba(0,0,0,.1)">
               ${['checklist:체크리스트', 'free:자유 메모', 'info:정보', 'image:이미지'].map(s => {
                 const [type, label] = s.split(':');
-                return `<div data-type="${type}" style="padding:6px 12px;font-size:11px;cursor:pointer" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">${label}</div>`;
+                return `<div class="sp-add-memo-option" data-type="${type}" style="padding:6px 12px;font-size:11px;cursor:pointer" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">${label}</div>`;
               }).join('')}
             </div>
           </div>
@@ -923,24 +923,24 @@ const SplitPage = (() => {
     if (card.type === 'checklist') {
       const items = card.items || [];
       body = items.map((item, ii) => `
-        <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
-          <input type="checkbox" class="mc-chk" data-ci="${ci}" data-ii="${ii}" ${item.done ? 'checked' : ''} style="accent-color:var(--blue);width:12px;height:12px;flex-shrink:0" />
-          <input class="mc-inp" data-ci="${ci}" data-ii="${ii}" value="${esc(item.text || '')}" placeholder="항목..." style="flex:1;border:none;background:transparent;font-size:11px;color:var(--text1);${item.done ? 'text-decoration:line-through;color:var(--text3)' : ''}" />
-          <button class="mc-item-del" data-ci="${ci}" data-ii="${ii}" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>
+        <div class="sp-check-item-row" style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+          <input type="checkbox" class="mc-chk sp-mc-chk" data-ci="${ci}" data-ii="${ii}" ${item.done ? 'checked' : ''} style="accent-color:var(--blue);width:12px;height:12px;flex-shrink:0" />
+          <input class="mc-inp sp-mc-input" data-ci="${ci}" data-ii="${ii}" value="${esc(item.text || '')}" placeholder="항목..." style="flex:1;border:none;background:transparent;font-size:11px;color:var(--text1);${item.done ? 'text-decoration:line-through;color:var(--text3)' : ''}" />
+          <button class="mc-item-del sp-mc-item-del" data-ci="${ci}" data-ii="${ii}" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0;line-height:1">×</button>
         </div>`).join('') +
-        `<button class="mc-add-item" data-ci="${ci}" style="font-size:10px;color:var(--text3);border:none;background:none;cursor:pointer;padding:2px 0">+ 추가</button>`;
+        `<button class="mc-add-item sp-mc-add-item" data-ci="${ci}" style="font-size:10px;color:var(--text3);border:none;background:none;cursor:pointer;padding:2px 0">+ 추가</button>`;
     } else if (card.type === 'free') {
-      body = `<textarea class="mc-inp" data-ci="${ci}" style="width:100%;min-height:56px;font-size:11px;padding:5px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1);resize:vertical;font-family:inherit;line-height:1.5" placeholder="자유롭게 입력...">${esc(card.text || '')}</textarea>`;
+      body = `<textarea class="mc-inp sp-mc-textarea" data-ci="${ci}" style="width:100%;min-height:56px;font-size:11px;padding:5px;border:0.5px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1);resize:vertical;font-family:inherit;line-height:1.5" placeholder="자유롭게 입력...">${esc(card.text || '')}</textarea>`;
     } else if (card.type === 'info') {
       const items = card.items || [];
       body = `<table style="width:100%;border-collapse:collapse;font-size:11px">
         ${items.map((item, ii) => `<tr style="border-bottom:0.5px solid var(--border)">
-          <td style="padding:2px 0;width:58px"><input class="mc-inp" data-ci="${ci}" data-ii="${ii}" data-field="label" value="${esc(item.label || '')}" placeholder="항목" style="width:100%;border:none;background:transparent;font-size:10px;color:var(--text2)" /></td>
-          <td style="padding:2px 4px"><input class="mc-inp" data-ci="${ci}" data-ii="${ii}" data-field="value" value="${esc(item.value || '')}" placeholder="내용" style="width:100%;border:none;background:transparent;font-size:11px;color:var(--text1)" /></td>
-          <td style="width:14px"><button class="mc-item-del" data-ci="${ci}" data-ii="${ii}" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0">×</button></td>
+          <td style="padding:2px 0;width:58px"><input class="mc-inp sp-mc-info-label" data-ci="${ci}" data-ii="${ii}" data-field="label" value="${esc(item.label || '')}" placeholder="항목" style="width:100%;border:none;background:transparent;font-size:10px;color:var(--text2)" /></td>
+          <td style="padding:2px 4px"><input class="mc-inp sp-mc-info-value" data-ci="${ci}" data-ii="${ii}" data-field="value" value="${esc(item.value || '')}" placeholder="내용" style="width:100%;border:none;background:transparent;font-size:11px;color:var(--text1)" /></td>
+          <td style="width:14px"><button class="mc-item-del sp-mc-item-del" data-ci="${ci}" data-ii="${ii}" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0">×</button></td>
         </tr>`).join('')}
       </table>
-      <button class="mc-add-item" data-ci="${ci}" style="font-size:10px;color:var(--text3);border:none;background:none;cursor:pointer;padding:3px 0">+ 행 추가</button>`;
+      <button class="mc-add-item sp-mc-add-item" data-ci="${ci}" style="font-size:10px;color:var(--text3);border:none;background:none;cursor:pointer;padding:3px 0">+ 행 추가</button>`;
     } else if (card.type === 'image') {
       const imgs = card.images || [];
       body = `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">
@@ -959,16 +959,16 @@ const SplitPage = (() => {
           </div>`;
         }).join('')}
       </div>
-      <label style="font-size:10px;color:var(--text3);cursor:pointer;border:0.5px dashed var(--border2);border-radius:4px;padding:4px 8px;display:inline-block">
+      <label class="sp-mc-image-add" style="font-size:10px;color:var(--text3);cursor:pointer;border:0.5px dashed var(--border2);border-radius:4px;padding:4px 8px;display:inline-block">
         + 이미지 추가
         <input type="file" class="mc-img-input" data-ci="${ci}" accept="image/*" multiple style="display:none" />
       </label>`;
     }
 
-    return `<div style="background:var(--bg1);border-radius:6px;padding:8px 10px;margin-bottom:7px;border:0.5px solid var(--border)">
-      <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px">
-        <input class="mc-title-inp" data-ci="${ci}" value="${esc(card.title || typeLabel)}" style="flex:1;border:none;background:transparent;font-size:10px;font-weight:500;color:var(--text2)" />
-        <button class="mc-del" data-ci="${ci}" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:13px;padding:0;line-height:1" title="카드 삭제">×</button>
+    return `<div class="sp-memo-card" style="background:var(--bg1);border-radius:6px;padding:8px 10px;margin-bottom:7px;border:0.5px solid var(--border)">
+      <div class="sp-memo-card-head" style="display:flex;align-items:center;gap:5px;margin-bottom:5px">
+        <input class="mc-title-inp sp-memo-title-inp" data-ci="${ci}" value="${esc(card.title || typeLabel)}" style="flex:1;border:none;background:transparent;font-size:10px;font-weight:500;color:var(--text2)" />
+        <button class="mc-del sp-memo-del" data-ci="${ci}" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:13px;padding:0;line-height:1" title="카드 삭제">×</button>
       </div>
       ${body}
     </div>`;
@@ -1095,12 +1095,12 @@ const SplitPage = (() => {
     }
 
     container.innerHTML = `
-      <div style="font-size:9px;color:var(--text3);margin:8px 0 5px;letter-spacing:.04em">항목 메모</div>
+      <div class="sp-item-memo-label" style="font-size:9px;color:var(--text3);margin:8px 0 5px;letter-spacing:.04em">항목 메모</div>
       ${withMemo.map(r => `
-        <div style="background:var(--bg1);border-radius:5px;padding:6px 8px;margin-bottom:5px;border:0.5px solid var(--border)">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div class="sp-item-memo-card" style="background:var(--bg1);border-radius:5px;padding:6px 8px;margin-bottom:5px;border:0.5px solid var(--border)">
+          <div class="sp-item-memo-card-head" style="display:flex;justify-content:space-between;align-items:flex-start">
             <div style="font-size:10px;font-weight:500;color:var(--text2);margin-bottom:2px">${esc(r.item)}</div>
-            <button onclick="SplitPage.deleteItemMemo(${r._idx})" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0;line-height:1;flex-shrink:0;margin-left:4px">×</button>
+            <button class="sp-item-memo-del" onclick="SplitPage.deleteItemMemo(${r._idx})" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0;line-height:1;flex-shrink:0;margin-left:4px">×</button>
           </div>
           <div style="font-size:10px;color:var(--text1);line-height:1.5;white-space:pre-wrap">${esc(r.memo)}</div>
         </div>`).join('')}`;
